@@ -12,6 +12,7 @@
   "dependencies": {
     "@types/uuid": "^10.0.0",
     "date-fns": "^4.1.0",
+    "dotenv": "^17.2.2",
     "next": "15.5.4",
     "openai": "^4.67.0",
     "react": "19.1.0",

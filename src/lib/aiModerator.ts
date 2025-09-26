@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import OpenAI from "openai";
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -13,7 +13,7 @@ export interface ModerationResult {
 
 export interface MessageAnalysis {
   isOffensive: boolean;
-  severity: 'low' | 'medium' | 'high';
+  severity: "low" | "medium" | "high";
   categories: string[];
   confidence: number;
 }
@@ -22,7 +22,9 @@ export class AIModerator {
   private systemPrompt: string;
 
   constructor(customPrompt?: string) {
-    this.systemPrompt = customPrompt || `You are an AI moderator for a chat application. Your role is to:
+    this.systemPrompt =
+      customPrompt ||
+      `You are an AI moderator for a chat application. Your role is to:
 
 1. Analyze incoming messages for offensive, abusive, inappropriate, or harmful content
 2. Only respond if you detect content that violates community guidelines
@@ -43,14 +45,17 @@ Examples of when to respond:
 Only respond if the message clearly violates guidelines. Do not respond to normal, respectful conversation.`;
   }
 
-  async analyzeMessage(message: string, username: string): Promise<ModerationResult> {
+  async analyzeMessage(
+    message: string,
+    username: string
+  ): Promise<ModerationResult> {
     try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini", // Using the more cost-effective model
         messages: [
           {
             role: "system",
-            content: this.systemPrompt
+            content: this.systemPrompt,
           },
           {
             role: "user",
@@ -61,8 +66,8 @@ Only respond if the message clearly violates guidelines. Do not respond to norma
   "reason": "brief reason for the decision"
 }
 
-Only respond if the message clearly violates guidelines. Be very conservative - only flag obvious violations.`
-          }
+Only respond if the message clearly violates guidelines. Be very conservative - only flag obvious violations.`,
+          },
         ],
         temperature: 0.3,
         max_tokens: 200,
@@ -78,15 +83,14 @@ Only respond if the message clearly violates guidelines. Be very conservative - 
         return {
           shouldRespond: parsed.shouldRespond || false,
           response: parsed.response,
-          reason: parsed.reason
+          reason: parsed.reason,
         };
       } catch (parseError) {
-        console.error('Error parsing AI response:', parseError);
+        console.error("Error parsing AI response:", parseError);
         return { shouldRespond: false };
       }
-
     } catch (error) {
-      console.error('AI Moderation error:', error);
+      console.error("AI Moderation error:", error);
       return { shouldRespond: false };
     }
   }
