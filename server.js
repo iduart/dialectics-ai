@@ -2,6 +2,7 @@ import { createServer } from "http";
 import { parse } from "url";
 import next from "next";
 import { Server } from "socket.io";
+import { aiModerator } from "./src/lib/aiModerator.js";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
@@ -46,13 +47,14 @@ app.prepare().then(() => {
     });
 
     // Send message to room
-    socket.on("send-message", (data) => {
+    socket.on("send-message", async (data) => {
       const messageData = {
         id: Date.now().toString(),
         message: data.message,
         username: data.username,
         timestamp: new Date().toISOString(),
         socketId: socket.id,
+        isAIModerator: false,
       };
 
       // Store message
@@ -68,8 +70,38 @@ app.prepare().then(() => {
       }
       messageStore.set(data.roomId, messages);
 
-      // Broadcast to room
+      // Broadcast original message to room
       io.to(data.roomId).emit("receive-message", messageData);
+
+      // AI Moderation
+      try {
+        const moderationResult = await aiModerator.analyzeMessage(data.message, data.username);
+        
+        if (moderationResult.shouldRespond && moderationResult.response) {
+          // Create AI moderator message
+          const aiMessage = {
+            id: `ai-${Date.now()}`,
+            message: moderationResult.response,
+            username: "AI Moderator",
+            timestamp: new Date().toISOString(),
+            socketId: "ai-moderator",
+            isAIModerator: true,
+            reason: moderationResult.reason,
+          };
+
+          // Store AI message
+          messages.push(aiMessage);
+          messageStore.set(data.roomId, messages);
+
+          // Broadcast AI message to room
+          io.to(data.roomId).emit("receive-message", aiMessage);
+          
+          console.log(`AI Moderator responded to message from ${data.username}: ${moderationResult.reason}`);
+        }
+      } catch (error) {
+        console.error("AI Moderation failed:", error);
+        // Continue normally if AI moderation fails
+      }
     });
 
     // Handle disconnect

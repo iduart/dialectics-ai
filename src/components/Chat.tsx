@@ -83,6 +83,10 @@ export default function Chat({ roomId, username }: ChatProps) {
           <div>
             <h1 className="text-xl font-semibold text-gray-800">Team Chat</h1>
             <p className="text-sm text-gray-600">Room: {roomId}</p>
+            <div className="flex items-center mt-1">
+              <div className="w-2 h-2 bg-amber-400 rounded-full mr-2"></div>
+              <span className="text-xs text-amber-600">AI Moderator Active</span>
+            </div>
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-600">{connectionStatus}</span>

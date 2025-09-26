@@ -9,6 +9,8 @@ export interface Message {
   username: string;
   timestamp: string;
   socketId: string;
+  isAIModerator?: boolean;
+  reason?: string;
 }
 
 export const useSocket = () => {
