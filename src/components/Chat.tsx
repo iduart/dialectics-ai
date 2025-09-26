@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSocket, Message as MessageType } from "@/hooks/useSocket";
 import Message from "./Message";
-import { v4 as uuidv4 } from "uuid";
 
 interface ChatProps {
   roomId: string;

@@ -25,11 +25,6 @@ function HomeContent() {
     setIsInChat(true);
   };
 
-  const handleLeaveChat = () => {
-    setIsInChat(false);
-    setRoomId("");
-    setUsername("");
-  };
 
   if (isInChat) {
     return <Chat roomId={roomId} username={username} />;

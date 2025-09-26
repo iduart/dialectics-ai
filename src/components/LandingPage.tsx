@@ -126,7 +126,7 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
 
           {!isCreatingRoom && (
             <div className="text-center">
-              <p className="text-gray-500 text-sm mb-4">Don't have a room?</p>
+              <p className="text-gray-500 text-sm mb-4">Don&apos;t have a room?</p>
               <button
                 onClick={handleCreateRoom}
                 disabled={!username.trim()}
