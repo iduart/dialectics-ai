@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Socket.io Test</title>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  </head>
+  <body>
+    <h1>Socket.io Connection Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="messages"></div>
+
+    <script>
+      const socket = io("http://localhost:3000", {
+        transports: ["polling", "websocket"],
+      });
+
+      const statusDiv = document.getElementById("status");
+      const messagesDiv = document.getElementById("messages");
+
+      socket.on("connect", () => {
+        statusDiv.innerHTML = "✅ Connected! Socket ID: " + socket.id;
+        statusDiv.style.color = "green";
+      });
+
+      socket.on("disconnect", (reason) => {
+        statusDiv.innerHTML = "❌ Disconnected: " + reason;
+        statusDiv.style.color = "red";
+      });
+
+      socket.on("connect_error", (error) => {
+        statusDiv.innerHTML = "🚨 Connection Error: " + error.message;
+        statusDiv.style.color = "red";
+        console.error("Connection error:", error);
+      });
+
+      // Test joining a room
+      setTimeout(() => {
+        if (socket.connected) {
+          socket.emit("join-room", "test-room");
+          messagesDiv.innerHTML = "<p>✅ Joined test room</p>";
+        }
+      }, 1000);
+    </script>
+  </body>
+</html>
