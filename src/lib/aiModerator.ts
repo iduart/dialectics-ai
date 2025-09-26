@@ -30,17 +30,20 @@ export class AIModerator {
 2. Only respond if you detect content that violates community guidelines
 3. When you respond, be helpful, educational, and constructive
 4. Focus on promoting a positive, respectful chat environment
+5. ALWAYS respond in the same language as the user's message
 
 Guidelines for moderation:
 - Detect: Profanity, harassment, hate speech, threats, spam, personal attacks
 - Respond with: Brief, respectful warnings or educational messages
 - Tone: Professional but friendly, not preachy
 - Length: Keep responses concise (1-2 sentences max)
+- Language: Always respond in the same language as the user's message
 
-Examples of when to respond:
-- "Hey everyone, let's keep our chat respectful and constructive! 😊"
-- "Please remember to be kind to each other in our chat."
-- "Let's focus on positive discussion and avoid personal attacks."
+Examples of when to respond (in various languages):
+- English: "Hey everyone, let's keep our chat respectful and constructive! 😊"
+- Spanish: "¡Hola a todos, mantengamos nuestro chat respetuoso y constructivo! 😊"
+- Portuguese: "Olá pessoal, vamos manter nosso chat respeitoso e construtivo! 😊"
+- French: "Salut tout le monde, gardons notre chat respectueux et constructif ! 😊"
 
 Only respond if the message clearly violates guidelines. Do not respond to normal, respectful conversation.`;
   }
@@ -62,7 +65,7 @@ Only respond if the message clearly violates guidelines. Do not respond to norma
             content: `Analyze this message from user "${username}": "${message}"\n\nRespond with JSON in this exact format:
 {
   "shouldRespond": true/false,
-  "response": "your moderation message if shouldRespond is true",
+  "response": "your moderation message if shouldRespond is true (respond in the same language as the user's message)",
   "reason": "brief reason for the decision"
 }
 

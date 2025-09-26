@@ -15,6 +15,9 @@ const port = process.env.PORT || 3000;
 // In-memory message storage
 const messageStore = new Map();
 
+// User violation tracking for AI context
+const userViolations = new Map(); // roomId -> { username: violationCount }
+
 // Initialize OpenAI client (primary AI)
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
@@ -60,12 +63,17 @@ class AIService {
     return completion.choices[0]?.message?.content;
   }
 
-  // AI Moderation
-  async moderateMessage(message, username) {
+  // AI Moderation with conversation context
+  async moderateMessage(
+    message,
+    username,
+    conversationHistory = [],
+    userViolationCount = 0
+  ) {
     const systemPrompt = `You are an AI moderator for a chat application. Your role is to:
 
 1. Analyze incoming messages for offensive, abusive, inappropriate, or harmful content
-2. Only respond if you detect content that violates community guidelines
+2. Respond to validation requests when users specifically ask for fact-checking
 3. When you respond, be helpful, educational, and constructive
 4. Focus on promoting a positive, respectful chat environment
 
@@ -75,21 +83,62 @@ Guidelines for moderation:
 - Tone: Professional but friendly, not preachy
 - Length: Keep responses concise (1-2 sentences max)
 
+Guidelines for validation requests:
+- Respond when users explicitly ask for validation (e.g., "@moderator please validate...", "Hey @moderator can you check if...")
+- Provide factual information based on your knowledge
+- If unsure about facts, state your uncertainty
+- Be helpful and educational in your responses
+- Use phrases like "Based on my knowledge..." or "I should note that..."
+
 Examples of when to respond:
-- "Hey everyone, let's keep our chat respectful and constructive! 😊"
-- "Please remember to be kind to each other in our chat."
-- "Let's focus on positive discussion and avoid personal attacks."
+- Offensive content: "Hey everyone, let's keep our chat respectful and constructive! 😊"
+- Personal violations: "John, please remember to be respectful in our chat."
+- Validation requests: "Based on my knowledge, that information appears to be accurate. However, I'd recommend double-checking with recent sources."
+- Factual errors: "I should note that this information might need verification. The most current data suggests..."
+- Repeat violations: "John, this is the second time I've noticed inappropriate language. Let's keep things constructive."
 
-Only respond if the message clearly violates guidelines. Do not respond to normal, respectful conversation.`;
+Only respond if the message clearly violates guidelines OR if there's an explicit validation request. Do not respond to normal, respectful conversation.`;
 
-    const userPrompt = `Analyze this message from user "${username}": "${message}"\n\nRespond with JSON in this exact format:
+    // Build conversation context
+    let conversationContext = "";
+    if (conversationHistory.length > 0) {
+      conversationContext = `\n\nRecent conversation context:\n${conversationHistory
+        .slice(-10) // Last 10 messages for context
+        .map((msg) => `${msg.username}: ${msg.message}`)
+        .join("\n")}\n`;
+    }
+
+    // Build user context
+    let userContext = "";
+    if (userViolationCount > 0) {
+      userContext = `\n\nUser Context: ${username} has ${userViolationCount} previous violation(s) in this room.`;
+    }
+
+    const userPrompt = `Analyze this NEW message from user "${username}": "${message}"${conversationContext}${userContext}
+
+Respond with JSON in this exact format:
 {
   "shouldRespond": true/false,
   "response": "your moderation message if shouldRespond is true",
   "reason": "brief reason for the decision"
 }
 
-Only respond if the message clearly violates guidelines. Be very conservative - only flag obvious violations.`;
+Respond if:
+1. The message clearly violates community guidelines (offensive, abusive, inappropriate content)
+2. The message contains explicit validation requests (e.g., "@moderator", "please validate", "can you check", "is this correct", "fact-check")
+3. The message references or builds upon previous messages in a way that requires moderation
+
+For validation requests, provide helpful factual information. For guideline violations, provide constructive moderation.
+
+When addressing violations:
+- For general violations: Use general reminders ("Hey everyone, let's keep it respectful")
+- For specific user violations: Address the user directly ("John, please remember to be respectful")
+- For repeat violations: Be more direct ("John, this is the second time I've noticed...")
+- Consider user violation history when deciding response tone and directness
+
+Use conversation context to better understand references to previous messages or ongoing discussions.
+
+Be very conservative - only respond to obvious violations or clear validation requests.`;
 
     try {
       const response = await this.callAI(systemPrompt, userPrompt);
@@ -170,21 +219,74 @@ Be helpful, friendly, and concise.`;
       return null;
     }
   }
+
+  // AI Validation/Fact-Checking
+  async validateInformation(message, context = {}) {
+    const systemPrompt = `You are an AI fact-checker and validator. Your role is to:
+
+1. Analyze information for accuracy and validity
+2. Provide factual corrections when needed
+3. Suggest reliable sources for verification
+4. Be helpful and educational in your responses
+
+Guidelines:
+- State your confidence level in the information
+- Provide corrections for factual errors
+- Suggest ways to verify information
+- Be respectful and constructive
+- Use phrases like "Based on my knowledge..." or "I should note that..."
+
+Always aim to help users find accurate information.`;
+
+    const userPrompt = `Please validate this information: "${message}"\n\nContext: ${JSON.stringify(
+      context
+    )}\n\nProvide a factual assessment and any corrections or clarifications needed.`;
+
+    try {
+      return await this.callAI(systemPrompt, userPrompt);
+    } catch (error) {
+      console.error("AI Validation error:", error);
+      return null;
+    }
+  }
 }
 
 // Initialize AI Service
 const aiService = new AIService();
 
 // Simple moderation function using the AI service
-async function analyzeMessage(message, username) {
+async function analyzeMessage(message, username, roomId) {
   if (!aiService.isAvailable()) {
     console.log("AI Moderation disabled: No OpenAI API key provided");
     return { shouldRespond: false };
   }
 
   try {
-    console.log("🤖 AI analyzing message...");
-    const result = await aiService.moderateMessage(message, username);
+    console.log("🤖 AI analyzing message with context...");
+
+    // Get conversation history for context
+    const conversationHistory = messageStore.get(roomId) || [];
+
+    // Get user violation count for this room
+    const roomViolations = userViolations.get(roomId) || {};
+    const userViolationCount = roomViolations[username] || 0;
+
+    const result = await aiService.moderateMessage(
+      message,
+      username,
+      conversationHistory,
+      userViolationCount
+    );
+
+    // If AI responded, increment violation count
+    if (result.shouldRespond) {
+      roomViolations[username] = (roomViolations[username] || 0) + 1;
+      userViolations.set(roomId, roomViolations);
+      console.log(
+        `📊 User ${username} violation count: ${roomViolations[username]}`
+      );
+    }
+
     console.log(`✅ AI analysis complete`);
     return result;
   } catch (error) {
@@ -337,7 +439,8 @@ app.prepare().then(() => {
       try {
         const moderationResult = await analyzeMessage(
           data.message,
-          data.username
+          data.username,
+          data.roomId
         );
 
         if (moderationResult.shouldRespond && moderationResult.response) {
@@ -455,6 +558,29 @@ app.prepare().then(() => {
       } catch (error) {
         console.error("AI Analysis error:", error);
         socket.emit("ai-response", { error: "Analysis failed" });
+      }
+    });
+
+    socket.on("ai-validate-information", async (data) => {
+      if (!aiService.isAvailable()) {
+        socket.emit("ai-response", { error: "AI service not available" });
+        return;
+      }
+
+      try {
+        const validation = await aiService.validateInformation(
+          data.message,
+          data.context
+        );
+        socket.emit("ai-response", {
+          type: "validation",
+          message: validation,
+          originalMessage: data.message,
+          context: data.context,
+        });
+      } catch (error) {
+        console.error("AI Validation error:", error);
+        socket.emit("ai-response", { error: "Validation failed" });
       }
     });
 

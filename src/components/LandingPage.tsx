@@ -38,11 +38,15 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
-      <div className="bg-white rounded-xl shadow-xl p-8 w-full max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center px-4">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Team Chat</h1>
-          <p className="text-gray-600">Connect with your team in real-time</p>
+          <h1 className="text-3xl font-bold text-gray-800 dark:text-slate-100 mb-2">
+            Team Chat
+          </h1>
+          <p className="text-gray-600 dark:text-slate-400">
+            Connect with your team in real-time
+          </p>
         </div>
 
         <div className="space-y-6">
@@ -50,7 +54,7 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
           <div>
             <label
               htmlFor="username"
-              className="block text-sm font-medium text-gray-700 mb-2"
+              className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
             >
               Your Name
             </label>
@@ -60,7 +64,7 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Enter your name"
-              className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
               maxLength={20}
             />
           </div>
@@ -70,7 +74,7 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
             <div>
               <label
                 htmlFor="roomId"
-                className="block text-sm font-medium text-gray-700 mb-2"
+                className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
               >
                 Room ID
               </label>
@@ -80,7 +84,7 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
                 value={roomId}
                 onChange={(e) => setRoomId(e.target.value)}
                 placeholder="Enter room ID or paste link"
-                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
               />
               <button
                 onClick={handleJoinRoom}
@@ -126,7 +130,9 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
 
           {!isCreatingRoom && (
             <div className="text-center">
-              <p className="text-gray-500 text-sm mb-4">Don&apos;t have a room?</p>
+              <p className="text-gray-500 text-sm mb-4">
+                Don&apos;t have a room?
+              </p>
               <button
                 onClick={handleCreateRoom}
                 disabled={!username.trim()}

@@ -3,6 +3,12 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --input-bg: #ffffff;
+  --input-text: #1f2937;
+  --input-border: #d1d5db;
+  --input-placeholder: #6b7280;
+  --input-focus-border: #3b82f6;
+  --input-focus-ring: #3b82f6;
 }
 
 @theme inline {
@@ -14,8 +20,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0f172a;
+    --foreground: #f1f5f9;
+    --input-bg: #1e293b;
+    --input-text: #f1f5f9;
+    --input-border: #475569;
+    --input-placeholder: #94a3b8;
+    --input-focus-border: #60a5fa;
+    --input-focus-ring: #60a5fa;
   }
 }
 
@@ -23,4 +35,41 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Enhanced input styles for better visibility */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea {
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
+  border-color: var(--input-border) !important;
+}
+
+input[type="text"]::placeholder,
+input[type="email"]::placeholder,
+input[type="password"]::placeholder,
+textarea::placeholder {
+  color: var(--input-placeholder) !important;
+  opacity: 1 !important;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+textarea:focus {
+  border-color: var(--input-focus-border) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+  outline: none !important;
+}
+
+/* Dark mode specific adjustments */
+@media (prefers-color-scheme: dark) {
+  input[type="text"]:focus,
+  input[type="email"]:focus,
+  input[type="password"]:focus,
+  textarea:focus {
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2) !important;
+  }
 }
