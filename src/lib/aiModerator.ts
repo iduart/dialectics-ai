@@ -85,7 +85,7 @@ Si no hay acción que tomar, no generes ningún mensaje.`;
   ): Promise<ModerationResult> {
     try {
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini", // Using the more cost-effective model
+        model: "gpt-5", // Using the latest and most advanced model
         messages: [
           {
             role: "system",
