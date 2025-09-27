@@ -104,7 +104,7 @@ Solo responde si el mensaje viola claramente las reglas del debate (insultos, de
           },
         ],
         temperature: 0.3,
-        max_tokens: 200,
+        max_completion_tokens: 200,
       });
 
       const response = completion.choices[0]?.message?.content;
