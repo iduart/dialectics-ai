@@ -43,13 +43,13 @@ class AIService {
     }
 
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
       temperature: 0.3,
-      max_completion_tokens: 500,
+      max_tokens: 500,
     });
 
     return completion.choices[0]?.message?.content;

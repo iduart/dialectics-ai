@@ -85,7 +85,7 @@ Si no hay acción que tomar, no generes ningún mensaje.`;
   ): Promise<ModerationResult> {
     try {
       const completion = await openai.chat.completions.create({
-        model: "gpt-5", // Using the latest and most advanced model
+        model: "gpt-4o-mini", // Using the cost-effective model
         messages: [
           {
             role: "system",
@@ -104,7 +104,7 @@ Solo responde si el mensaje viola claramente las reglas del debate (insultos, de
           },
         ],
         temperature: 0.3,
-        max_completion_tokens: 200,
+        max_tokens: 200,
       });
 
       const response = completion.choices[0]?.message?.content;
