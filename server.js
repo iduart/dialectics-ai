@@ -18,6 +18,10 @@ const messageStore = new Map();
 // User violation tracking for AI context
 const userViolations = new Map(); // roomId -> { username: violationCount }
 
+// Room management for 2-person debates
+const roomParticipants = new Map(); // roomId -> { participants: [], currentTurn: 0, debateStarted: false }
+const roomConfigs = new Map(); // roomId -> { description, toleranceLevel, duration }
+
 // Initialize OpenAI client (primary AI)
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
@@ -223,21 +227,149 @@ app.prepare().then(() => {
     console.log("User connected:", socket.id);
 
     // Join a room
-    socket.on("join-room", (roomId) => {
+    socket.on("join-room", (data) => {
+      const { roomId, username, debateConfig } = data;
+
+      console.log("\n=== JOIN ROOM EVENT ===");
+      console.log("Room ID:", roomId);
+      console.log("Username:", username);
+      console.log("Debate Config:", JSON.stringify(debateConfig, null, 2));
+      console.log("Socket ID:", socket.id);
+
+      // Check if room exists and has participants
+      let roomData = roomParticipants.get(roomId) || {
+        participants: [],
+        currentTurn: 0,
+        debateStarted: false,
+      };
+
+      console.log("Current room data:", JSON.stringify(roomData, null, 2));
+      console.log("Total rooms in memory:", roomParticipants.size);
+      console.log("All room IDs:", Array.from(roomParticipants.keys()));
+      console.log(
+        "All room configs:",
+        JSON.stringify(Object.fromEntries(roomConfigs), null, 2)
+      );
+
+      // Check if room is full (2 participants max)
+      if (roomData.participants.length >= 2) {
+        console.log("Room is full, rejecting join");
+        socket.emit("room-full", {
+          message: "Room is full. Only 2 participants allowed.",
+        });
+        return;
+      }
+
+      // Check if this socket is already in the room
+      if (roomData.participants.some((p) => p.socketId === socket.id)) {
+        console.log("Socket already in room, ignoring duplicate join");
+        return;
+      }
+
+      // Check if username already exists in room
+      if (roomData.participants.some((p) => p.username === username)) {
+        console.log("Username already taken, rejecting join");
+        socket.emit("username-taken", {
+          message: "Username already taken in this room.",
+        });
+        return;
+      }
+
+      // Add participant to room
+      const participant = { socketId: socket.id, username: username };
+      roomData.participants.push(participant);
+      roomParticipants.set(roomId, roomData);
+
+      // Store room config if this is the first participant
+      if (roomData.participants.length === 1 && debateConfig) {
+        console.log(
+          "Storing room config for new room:",
+          JSON.stringify(debateConfig, null, 2)
+        );
+        roomConfigs.set(roomId, debateConfig);
+      }
+
       socket.join(roomId);
-      console.log(`User ${socket.id} joined room ${roomId}`);
+      console.log(`User ${username} (${socket.id}) joined room ${roomId}`);
+      console.log("Updated room data:", JSON.stringify(roomData, null, 2));
+      console.log(
+        "Updated room configs:",
+        JSON.stringify(Object.fromEntries(roomConfigs), null, 2)
+      );
 
       // Send message history to the newly joined user
       if (messageStore.has(roomId)) {
         const messages = messageStore.get(roomId);
+        console.log("Sending message history:", messages.length, "messages");
         socket.emit("message-history", messages);
+      } else {
+        console.log("No message history for room");
       }
 
-      socket.to(roomId).emit("user-joined", socket.id);
+      // Send room info to all participants
+      const roomInfo = {
+        participants: roomData.participants,
+        currentTurn: roomData.currentTurn,
+        currentSpeaker:
+          roomData.participants[roomData.currentTurn]?.username || null,
+        debateStarted: roomData.debateStarted,
+      };
+
+      console.log(
+        "Sending room info to all participants:",
+        JSON.stringify(roomInfo, null, 2)
+      );
+
+      // Send debate config to the newly joined user if room already has config
+      const existingConfig = roomConfigs.get(roomId);
+      console.log(
+        `Room ${roomId} existing config:`,
+        JSON.stringify(existingConfig, null, 2)
+      );
+      if (existingConfig) {
+        console.log(`Sending config to user ${username} (${socket.id})`);
+        socket.emit("room-config", existingConfig);
+      } else {
+        console.log(
+          `No config found for room ${roomId}, waiting for creator...`
+        );
+        // Send a signal that we're waiting for the room creator
+        socket.emit("waiting-for-creator", {
+          message: "Waiting for room creator to join...",
+        });
+      }
+
+      io.to(roomId).emit("room-updated", roomInfo);
+      socket
+        .to(roomId)
+        .emit("user-joined", { socketId: socket.id, username: username });
+
+      console.log("=== END JOIN ROOM EVENT ===\n");
     });
 
     // Send message to room
     socket.on("send-message", async (data) => {
+      const roomData = roomParticipants.get(data.roomId);
+
+      // Check if debate has started and if it's the user's turn
+      if (roomData && roomData.participants.length === 2) {
+        if (!roomData.debateStarted) {
+          socket.emit("debate-not-started", {
+            message: "The debate hasn't started yet.",
+          });
+          return;
+        }
+
+        const currentSpeaker = roomData.participants[roomData.currentTurn];
+        if (currentSpeaker.socketId !== socket.id) {
+          socket.emit("not-your-turn", {
+            message: "It's not your turn to speak.",
+            currentSpeaker: currentSpeaker.username,
+          });
+          return;
+        }
+      }
+
       const messageData = {
         id: Date.now().toString(),
         message: data.message,
@@ -259,6 +391,25 @@ app.prepare().then(() => {
         messages.splice(0, messages.length - 100);
       }
       messageStore.set(data.roomId, messages);
+
+      // Switch turns (only if there are 2 participants and debate has started)
+      if (
+        roomData &&
+        roomData.participants.length === 2 &&
+        roomData.debateStarted
+      ) {
+        roomData.currentTurn = (roomData.currentTurn + 1) % 2;
+        roomParticipants.set(data.roomId, roomData);
+
+        // Notify all participants about turn change
+        const roomInfo = {
+          participants: roomData.participants,
+          currentTurn: roomData.currentTurn,
+          currentSpeaker: roomData.participants[roomData.currentTurn].username,
+          debateStarted: roomData.debateStarted,
+        };
+        io.to(data.roomId).emit("room-updated", roomInfo);
+      }
 
       // Broadcast original message to room
       io.to(data.roomId).emit("receive-message", messageData);
@@ -300,9 +451,127 @@ app.prepare().then(() => {
       }
     });
 
+    // Start debate
+    socket.on("start-debate", (data) => {
+      console.log("\n=== START DEBATE EVENT ===");
+      console.log("Room ID:", data.roomId);
+      console.log("Username:", data.username);
+
+      const roomData = roomParticipants.get(data.roomId);
+      console.log("Room data:", JSON.stringify(roomData, null, 2));
+      console.log(
+        "All rooms:",
+        JSON.stringify(Object.fromEntries(roomParticipants), null, 2)
+      );
+
+      // Only allow starting if there are exactly 2 participants and debate hasn't started
+      if (
+        roomData &&
+        roomData.participants.length === 2 &&
+        !roomData.debateStarted
+      ) {
+        console.log("Starting debate - conditions met");
+        roomData.debateStarted = true;
+        roomData.currentTurn = 0; // Start with first participant
+        roomParticipants.set(data.roomId, roomData);
+
+        // Notify all participants that debate has started
+        const roomInfo = {
+          participants: roomData.participants,
+          currentTurn: roomData.currentTurn,
+          currentSpeaker: roomData.participants[roomData.currentTurn].username,
+          debateStarted: roomData.debateStarted,
+        };
+
+        console.log(
+          "Sending debate started event with room info:",
+          JSON.stringify(roomInfo, null, 2)
+        );
+        io.to(data.roomId).emit("debate-started", roomInfo);
+        io.to(data.roomId).emit("room-updated", roomInfo);
+
+        console.log(
+          `Debate started in room ${data.roomId} by ${data.username}`
+        );
+        console.log("=== END START DEBATE EVENT ===\n");
+      } else {
+        console.log("Cannot start debate - conditions not met");
+        console.log("Room exists:", !!roomData);
+        console.log("Participants count:", roomData?.participants?.length || 0);
+        console.log("Debate started:", roomData?.debateStarted);
+        socket.emit("start-debate-failed", {
+          message:
+            "Cannot start debate. Need exactly 2 participants and debate must not have started yet.",
+        });
+      }
+    });
+
     // Handle disconnect
     socket.on("disconnect", () => {
+      console.log("\n=== DISCONNECT EVENT ===");
       console.log("User disconnected:", socket.id);
+      console.log(
+        "Current rooms before disconnect:",
+        JSON.stringify(Object.fromEntries(roomParticipants), null, 2)
+      );
+      console.log(
+        "Current configs before disconnect:",
+        JSON.stringify(Object.fromEntries(roomConfigs), null, 2)
+      );
+
+      // Remove participant from all rooms
+      for (const [roomId, roomData] of roomParticipants.entries()) {
+        const participantIndex = roomData.participants.findIndex(
+          (p) => p.socketId === socket.id
+        );
+        if (participantIndex !== -1) {
+          const participant = roomData.participants[participantIndex];
+          console.log(
+            `Removing participant ${participant.username} from room ${roomId}`
+          );
+
+          roomData.participants.splice(participantIndex, 1);
+
+          // Adjust turn if needed
+          if (roomData.currentTurn >= roomData.participants.length) {
+            roomData.currentTurn = 0;
+          }
+
+          roomParticipants.set(roomId, roomData);
+
+          // Notify remaining participants
+          if (roomData.participants.length > 0) {
+            console.log(
+              `Room ${roomId} still has ${roomData.participants.length} participants`
+            );
+            const roomInfo = {
+              participants: roomData.participants,
+              currentTurn: roomData.currentTurn,
+              currentSpeaker:
+                roomData.participants[roomData.currentTurn]?.username || null,
+              debateStarted: roomData.debateStarted,
+            };
+            io.to(roomId).emit("room-updated", roomInfo);
+            io.to(roomId).emit("user-left", { username: participant.username });
+          } else {
+            console.log(`Room ${roomId} is now empty, cleaning up`);
+            // Clean up empty room
+            roomParticipants.delete(roomId);
+            roomConfigs.delete(roomId);
+          }
+
+          console.log(
+            "Updated rooms after disconnect:",
+            JSON.stringify(Object.fromEntries(roomParticipants), null, 2)
+          );
+          console.log(
+            "Updated configs after disconnect:",
+            JSON.stringify(Object.fromEntries(roomConfigs), null, 2)
+          );
+          break;
+        }
+      }
+      console.log("=== END DISCONNECT EVENT ===\n");
     });
   });
 

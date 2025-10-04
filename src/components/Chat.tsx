@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useSocket, Message as MessageType } from "@/hooks/useSocket";
+import { useSocket, Message as MessageType, RoomInfo } from "@/hooks/useSocket";
 import Message from "./Message";
 
 interface DebateConfig {
@@ -13,15 +13,24 @@ interface DebateConfig {
 interface ChatProps {
   roomId: string;
   username: string;
-  debateConfig: DebateConfig;
+  debateConfig: DebateConfig | null;
 }
 
-export default function Chat({ roomId, username, debateConfig }: ChatProps) {
+export default function Chat({
+  roomId,
+  username,
+  debateConfig: initialDebateConfig,
+}: ChatProps) {
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [socketId, setSocketId] = useState<string>("");
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [isDebateEnded, setIsDebateEnded] = useState(false);
+  const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [debateConfig, setDebateConfig] = useState<DebateConfig | null>(
+    initialDebateConfig
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -32,6 +41,17 @@ export default function Chat({ roomId, username, debateConfig }: ChatProps) {
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,
+    onRoomUpdated,
+    onRoomFull,
+    onUsernameTaken,
+    onNotYourTurn,
+    onUserLeft,
+    onRoomConfig,
+    startDebate,
+    onDebateStarted,
+    onDebateNotStarted,
+    onStartDebateFailed,
+    onWaitingForCreator,
   } = useSocket();
 
   useEffect(() => {
@@ -40,8 +60,10 @@ export default function Chat({ roomId, username, debateConfig }: ChatProps) {
     }
   }, [socket]);
 
-  // Initialize timer when component mounts
+  // Initialize timer when debate starts
   useEffect(() => {
+    if (!debateConfig || !roomInfo?.debateStarted) return;
+
     const durationMinutes = parseInt(debateConfig.duration);
     const durationMs = durationMinutes * 60 * 1000;
     setTimeLeft(durationMs);
@@ -57,33 +79,108 @@ export default function Chat({ roomId, username, debateConfig }: ChatProps) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [debateConfig.duration]);
+  }, [debateConfig, roomInfo?.debateStarted]);
 
   useEffect(() => {
-    if (socket && roomId) {
-      joinRoom(roomId);
+    if (socket && roomId && !roomInfo) {
+      // Only join once when we have socket and roomId but no room info yet
+      joinRoom(roomId, username, debateConfig);
     }
-  }, [socket, roomId, joinRoom]);
+  }, [socket, roomId, username, joinRoom, roomInfo]);
 
   useEffect(() => {
     const unsubscribeReceive = onReceiveMessage((message: MessageType) => {
       setMessages((prev) => [...prev, message]);
     });
 
-    const unsubscribeJoin = onUserJoined((id: string) => {
-      console.log(`User ${id} joined the room`);
+    const unsubscribeJoin = onUserJoined((data: any) => {
+      console.log(`User ${data.username} joined the room`);
     });
 
     const unsubscribeHistory = onMessageHistory((history: MessageType[]) => {
       setMessages(history);
     });
 
+    const unsubscribeRoomUpdated = onRoomUpdated((roomInfo: RoomInfo) => {
+      setRoomInfo(roomInfo);
+    });
+
+    const unsubscribeRoomFull = onRoomFull((data: { message: string }) => {
+      setErrorMessage(data.message);
+    });
+
+    const unsubscribeUsernameTaken = onUsernameTaken(
+      (data: { message: string }) => {
+        setErrorMessage(data.message);
+      }
+    );
+
+    const unsubscribeNotYourTurn = onNotYourTurn(
+      (data: { message: string; currentSpeaker: string }) => {
+        setErrorMessage(data.message);
+      }
+    );
+
+    const unsubscribeUserLeft = onUserLeft((data: { username: string }) => {
+      console.log(`User ${data.username} left the room`);
+    });
+
+    const unsubscribeRoomConfig = onRoomConfig((config: DebateConfig) => {
+      setDebateConfig(config);
+    });
+
+    const unsubscribeDebateStarted = onDebateStarted((roomInfo: RoomInfo) => {
+      setRoomInfo(roomInfo);
+    });
+
+    const unsubscribeDebateNotStarted = onDebateNotStarted(
+      (data: { message: string }) => {
+        setErrorMessage(data.message);
+      }
+    );
+
+    const unsubscribeStartDebateFailed = onStartDebateFailed(
+      (data: { message: string }) => {
+        setErrorMessage(data.message);
+      }
+    );
+
+    const unsubscribeWaitingForCreator = onWaitingForCreator(
+      (data: { message: string }) => {
+        console.log("Waiting for creator:", data.message);
+      }
+    );
+
     return () => {
       unsubscribeReceive();
       unsubscribeJoin();
       unsubscribeHistory();
+      unsubscribeRoomUpdated();
+      unsubscribeRoomFull();
+      unsubscribeUsernameTaken();
+      unsubscribeNotYourTurn();
+      unsubscribeUserLeft();
+      unsubscribeRoomConfig();
+      unsubscribeDebateStarted();
+      unsubscribeDebateNotStarted();
+      unsubscribeStartDebateFailed();
+      unsubscribeWaitingForCreator();
     };
-  }, [onReceiveMessage, onUserJoined, onMessageHistory]);
+  }, [
+    onReceiveMessage,
+    onUserJoined,
+    onMessageHistory,
+    onRoomUpdated,
+    onRoomFull,
+    onUsernameTaken,
+    onNotYourTurn,
+    onUserLeft,
+    onRoomConfig,
+    onDebateStarted,
+    onDebateNotStarted,
+    onStartDebateFailed,
+    onWaitingForCreator,
+  ]);
 
   useEffect(() => {
     scrollToBottom();
@@ -98,10 +195,38 @@ export default function Chat({ roomId, username, debateConfig }: ChatProps) {
     if (newMessage.trim() && connected && !isDebateEnded) {
       sendMessage(roomId, newMessage.trim(), username);
       setNewMessage("");
+      setErrorMessage(""); // Clear any previous error messages
     }
   };
 
+  const handleStartDebate = () => {
+    startDebate(roomId, username);
+    setErrorMessage(""); // Clear any previous error messages
+  };
+
+  // Check if it's the current user's turn
+  const isMyTurn = roomInfo && roomInfo.currentSpeaker === username;
+
   const connectionStatus = connected ? "🟢 Connected" : "🔴 Disconnected";
+
+  // Show loading if debate config is not available yet
+  if (!debateConfig) {
+    return (
+      <div className="flex flex-col h-screen bg-gray-50 dark:bg-slate-900">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-gray-600 dark:text-slate-400 mb-4">
+              Loading room configuration...
+            </p>
+            <p className="text-sm text-gray-500 dark:text-slate-500">
+              Waiting for room creator to join...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Format time left
   const formatTime = (milliseconds: number) => {
@@ -159,6 +284,74 @@ export default function Chat({ roomId, username, debateConfig }: ChatProps) {
                 AI Moderator Active
               </span>
             </div>
+
+            {/* Prominent Turn Indicator */}
+            {roomInfo && roomInfo.participants.length === 2 && (
+              <div
+                className={`mt-4 p-4 rounded-lg border-2 ${
+                  roomInfo.debateStarted
+                    ? isMyTurn
+                      ? "bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-600"
+                      : "bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-600"
+                    : "bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600"
+                }`}
+              >
+                {!roomInfo.debateStarted ? (
+                  <div className="text-center">
+                    <div className="flex items-center justify-center mb-2">
+                      <div className="w-4 h-4 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
+                      <span className="text-lg font-semibold text-blue-700 dark:text-blue-300">
+                        Ready to Start Debate
+                      </span>
+                    </div>
+                    <p className="text-sm text-blue-600 dark:text-blue-400 mb-3">
+                      Both participants are in the room. Click to start the
+                      debate!
+                    </p>
+                    <button
+                      onClick={handleStartDebate}
+                      className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+                    >
+                      Start Debate
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <div className="flex items-center justify-center mb-2">
+                      <div
+                        className={`w-4 h-4 rounded-full mr-2 ${
+                          isMyTurn
+                            ? "bg-green-500 animate-pulse"
+                            : "bg-orange-500"
+                        }`}
+                      ></div>
+                      <span
+                        className={`text-lg font-bold ${
+                          isMyTurn
+                            ? "text-green-700 dark:text-green-300"
+                            : "text-orange-700 dark:text-orange-300"
+                        }`}
+                      >
+                        {isMyTurn
+                          ? "🎯 YOUR TURN"
+                          : `👤 ${roomInfo.currentSpeaker}'s Turn`}
+                      </span>
+                    </div>
+                    <p
+                      className={`text-sm ${
+                        isMyTurn
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-orange-600 dark:text-orange-400"
+                      }`}
+                    >
+                      {isMyTurn
+                        ? "You can now send your message"
+                        : `Waiting for ${roomInfo.currentSpeaker} to respond...`}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-600 dark:text-slate-400">
@@ -239,14 +432,31 @@ export default function Chat({ roomId, username, debateConfig }: ChatProps) {
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder={
-              isDebateEnded ? "Debate has ended" : "Type your message..."
+              isDebateEnded
+                ? "Debate has ended"
+                : !roomInfo?.debateStarted
+                ? "Debate hasn't started yet"
+                : !isMyTurn && roomInfo?.participants.length === 2
+                ? `Wait for ${roomInfo.currentSpeaker}'s turn...`
+                : "Type your message..."
             }
             className="flex-1 border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
-            disabled={!connected || isDebateEnded}
+            disabled={
+              !connected ||
+              isDebateEnded ||
+              !roomInfo?.debateStarted ||
+              (!isMyTurn && roomInfo?.participants.length === 2)
+            }
           />
           <button
             type="submit"
-            disabled={!connected || !newMessage.trim() || isDebateEnded}
+            disabled={
+              !connected ||
+              !newMessage.trim() ||
+              isDebateEnded ||
+              !roomInfo?.debateStarted ||
+              (!isMyTurn && roomInfo?.participants.length === 2)
+            }
             className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-6 py-2 rounded-lg font-medium transition-colors"
           >
             Send
@@ -255,6 +465,14 @@ export default function Chat({ roomId, username, debateConfig }: ChatProps) {
         {!connected && (
           <p className="text-sm text-red-500 mt-2">
             Disconnected. Trying to reconnect...
+          </p>
+        )}
+        {errorMessage && (
+          <p className="text-sm text-red-500 mt-2">{errorMessage}</p>
+        )}
+        {roomInfo && roomInfo.participants.length === 1 && (
+          <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-2">
+            Waiting for second participant to join the debate...
           </p>
         )}
       </div>

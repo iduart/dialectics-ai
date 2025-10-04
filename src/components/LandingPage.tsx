@@ -7,7 +7,8 @@ interface LandingPageProps {
   onJoinRoom: (
     roomId: string,
     username: string,
-    debateConfig: DebateConfig
+    debateConfig: DebateConfig | undefined,
+    isCreating: boolean
   ) => void;
 }
 
@@ -20,32 +21,31 @@ interface DebateConfig {
 export default function LandingPage({ onJoinRoom }: LandingPageProps) {
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState("");
-  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [activeTab, setActiveTab] = useState<"create" | "join">("create");
   const [debateDescription, setDebateDescription] = useState("");
   const [toleranceLevel, setToleranceLevel] = useState("1");
   const [duration, setDuration] = useState("30");
 
   const handleCreateRoom = () => {
-    if (username.trim()) {
+    if (username.trim() && debateDescription.trim()) {
       const newRoomId = uuidv4();
-      setRoomId(newRoomId);
-      setIsCreatingRoom(true);
-    }
-  };
-
-  const handleJoinRoom = () => {
-    if (username.trim() && roomId.trim()) {
       const debateConfig: DebateConfig = {
         description: debateDescription,
         toleranceLevel: toleranceLevel,
         duration: duration,
       };
-      onJoinRoom(roomId, username, debateConfig);
+      onJoinRoom(newRoomId, username, debateConfig, true);
+    }
+  };
+
+  const handleJoinRoom = () => {
+    if (username.trim() && roomId.trim()) {
+      onJoinRoom(roomId, username, undefined, false);
     }
   };
 
   const handleJoinExistingRoom = () => {
-    setIsCreatingRoom(false);
+    setActiveTab("join");
     setRoomId("");
   };
 
@@ -67,8 +67,32 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
           </p>
         </div>
 
+        {/* Tab Navigation */}
+        <div className="flex space-x-1 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg mb-6">
+          <button
+            onClick={() => setActiveTab("create")}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+              activeTab === "create"
+                ? "bg-white dark:bg-slate-600 text-gray-900 dark:text-slate-100 shadow-sm"
+                : "text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-300"
+            }`}
+          >
+            Create Room
+          </button>
+          <button
+            onClick={() => setActiveTab("join")}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+              activeTab === "join"
+                ? "bg-white dark:bg-slate-600 text-gray-900 dark:text-slate-100 shadow-sm"
+                : "text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-300"
+            }`}
+          >
+            Join Room
+          </button>
+        </div>
+
         <div className="space-y-6">
-          {/* Username Input */}
+          {/* Username Input - Always visible */}
           <div>
             <label
               htmlFor="username"
@@ -87,164 +111,118 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
             />
           </div>
 
-          {/* Debate Description */}
-          <div>
-            <label
-              htmlFor="debateDescription"
-              className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
-            >
-              Debate Topic / Context
-            </label>
-            <textarea
-              id="debateDescription"
-              value={debateDescription}
-              onChange={(e) => setDebateDescription(e.target.value)}
-              placeholder="Describe the topic or provide context for the debate..."
-              rows={3}
-              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-none"
-              maxLength={500}
-            />
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-              {debateDescription.length}/500 characters
-            </p>
-          </div>
-
-          {/* Tolerance Level */}
-          <div>
-            <label
-              htmlFor="toleranceLevel"
-              className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
-            >
-              Tolerance Level
-            </label>
-            <select
-              id="toleranceLevel"
-              value={toleranceLevel}
-              onChange={(e) => setToleranceLevel(e.target.value)}
-              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
-            >
-              <option value="1">
-                Nivel 1 (Tranquilo) - Se penalizan adjetivos fuertes y
-                comentarios despectivos
-              </option>
-              <option value="2">
-                Nivel 2 (Intermedio) - Se permiten adjetivos críticos, pero no
-                ofensivas directas
-              </option>
-              <option value="3">
-                Nivel 3 (Intenso) - Se aceptan expresiones más duras, nunca
-                insultos directos
-              </option>
-            </select>
-          </div>
-
-          {/* Duration */}
-          <div>
-            <label
-              htmlFor="duration"
-              className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
-            >
-              Discussion Duration
-            </label>
-            <select
-              id="duration"
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
-            >
-              <option value="15">15 minutes</option>
-              <option value="30">30 minutes</option>
-              <option value="45">45 minutes</option>
-            </select>
-          </div>
-
-          {!isCreatingRoom ? (
-            /* Room ID Input */
-            <div>
-              <label
-                htmlFor="roomId"
-                className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
-              >
-                Room ID
-              </label>
-              <input
-                type="text"
-                id="roomId"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-                placeholder="Enter room ID or paste link"
-                className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
-              />
-              <button
-                onClick={handleJoinRoom}
-                disabled={
-                  !username.trim() ||
-                  !roomId.trim() ||
-                  !debateDescription.trim()
-                }
-                className="w-full mt-4 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white py-3 rounded-lg font-medium transition-colors"
-              >
-                Join Room
-              </button>
-            </div>
-          ) : (
-            /* Room Created */
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <h3 className="text-lg font-semibold text-green-800 mb-2">
-                Room Created!
-              </h3>
-              <p className="text-sm text-green-700 mb-3">
-                Share this link with your team:
-              </p>
-              <div className="bg-white border border-green-200 rounded p-2 mb-3">
-                <code className="text-xs text-gray-800 break-all">
-                  {typeof window !== "undefined"
-                    ? `${window.location.origin}?room=${roomId}`
-                    : roomId}
-                </code>
-              </div>
-              <div className="flex space-x-2">
-                <button
-                  onClick={copyRoomLink}
-                  className="flex-1 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded text-sm font-medium transition-colors"
+          {/* Tab Content */}
+          {activeTab === "create" ? (
+            <>
+              {/* Debate Description */}
+              <div>
+                <label
+                  htmlFor="debateDescription"
+                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
                 >
-                  Copy Link
-                </button>
-                <button
-                  onClick={handleJoinRoom}
-                  disabled={!username.trim() || !debateDescription.trim()}
-                  className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white py-2 px-4 rounded text-sm font-medium transition-colors"
-                >
-                  Enter Room
-                </button>
+                  Debate Topic / Context
+                </label>
+                <textarea
+                  id="debateDescription"
+                  value={debateDescription}
+                  onChange={(e) => setDebateDescription(e.target.value)}
+                  placeholder="Describe the topic or provide context for the debate..."
+                  rows={3}
+                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-none"
+                  maxLength={500}
+                />
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                  {debateDescription.length}/500 characters
+                </p>
               </div>
-            </div>
-          )}
 
-          {!isCreatingRoom && (
-            <div className="text-center">
-              <p className="text-gray-500 text-sm mb-4">
-                Don&apos;t have a room?
-              </p>
+              {/* Tolerance Level */}
+              <div>
+                <label
+                  htmlFor="toleranceLevel"
+                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+                >
+                  Tolerance Level
+                </label>
+                <select
+                  id="toleranceLevel"
+                  value={toleranceLevel}
+                  onChange={(e) => setToleranceLevel(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
+                >
+                  <option value="1">
+                    Nivel 1 (Tranquilo) - Se penalizan adjetivos fuertes y
+                    comentarios despectivos
+                  </option>
+                  <option value="2">
+                    Nivel 2 (Intermedio) - Se permiten adjetivos críticos, pero
+                    no ofensivas directas
+                  </option>
+                  <option value="3">
+                    Nivel 3 (Intenso) - Se aceptan expresiones más duras, nunca
+                    insultos directos
+                  </option>
+                </select>
+              </div>
+
+              {/* Duration */}
+              <div>
+                <label
+                  htmlFor="duration"
+                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+                >
+                  Discussion Duration
+                </label>
+                <select
+                  id="duration"
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
+                >
+                  <option value="15">15 minutes</option>
+                  <option value="30">30 minutes</option>
+                  <option value="45">45 minutes</option>
+                </select>
+              </div>
+
+              {/* Create Room Button */}
               <button
                 onClick={handleCreateRoom}
                 disabled={!username.trim() || !debateDescription.trim()}
-                className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white py-3 px-6 rounded-lg font-medium transition-colors"
+                className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white py-3 rounded-lg font-medium transition-colors"
               >
                 Create New Room
               </button>
-            </div>
-          )}
+            </>
+          ) : (
+            <>
+              {/* Room ID Input */}
+              <div>
+                <label
+                  htmlFor="roomId"
+                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+                >
+                  Room ID
+                </label>
+                <input
+                  type="text"
+                  id="roomId"
+                  value={roomId}
+                  onChange={(e) => setRoomId(e.target.value)}
+                  placeholder="Enter room ID or paste link"
+                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
+                />
+              </div>
 
-          {isCreatingRoom && (
-            <div className="text-center">
+              {/* Join Room Button */}
               <button
-                onClick={handleJoinExistingRoom}
-                className="text-blue-500 hover:text-blue-600 text-sm font-medium transition-colors"
+                onClick={handleJoinRoom}
+                disabled={!username.trim() || !roomId.trim()}
+                className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white py-3 rounded-lg font-medium transition-colors"
               >
-                Join existing room instead
+                Join Room
               </button>
-            </div>
+            </>
           )}
         </div>
 

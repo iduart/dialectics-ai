@@ -29,15 +29,16 @@ function HomeContent() {
   const handleJoinRoom = (
     roomId: string,
     username: string,
-    debateConfig: DebateConfig
+    debateConfig: DebateConfig | undefined,
+    isCreating: boolean
   ) => {
     setRoomId(roomId);
     setUsername(username);
-    setDebateConfig(debateConfig);
+    setDebateConfig(debateConfig || null);
     setIsInChat(true);
   };
 
-  if (isInChat && debateConfig) {
+  if (isInChat) {
     return (
       <Chat roomId={roomId} username={username} debateConfig={debateConfig} />
     );
