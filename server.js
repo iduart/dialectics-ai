@@ -126,13 +126,11 @@ Cuando un punto negativo sea asignado por información no veraz, el participante
 
 FORMATO DE MOCIÓN: Los mensajes que comiencen con "mocion:" deben ser tratados como mociones. Ejemplo: "mocion:quiero aclarar que me refería a casos electivos"
 
-Al recibir un mensaje en formato "mocion:[mensaje]":
+Al recibir un mensaje en formato "mocion:[mensaje]", evalúa INMEDIATAMENTE la aclaración:
 
 Si el punto negativo fue por insultos o desvío → "No aplica moción en este caso. Continúa el debate."
 
-Si el punto negativo fue por información no veraz → "Has solicitado una MOCIÓN. Validaré tu aclaración en el siguiente mensaje."
-
-Evalúa la aclaración contenida en el mensaje después de "mocion:":
+Si el punto negativo fue por información no veraz, evalúa la aclaración:
 
 MOCIÓN válida:
 "Se retira el punto negativo tras la aclaración. Sin embargo, se aclara que la afirmación inicial no es correcta: [explicación breve y tajante]. La palabra pasa al otro participante."
@@ -825,12 +823,15 @@ app.prepare().then(() => {
         roomId: data.roomId,
       });
 
+      // Restart turn timer for 1 minute so user has time to write motion
+      startTurnTimer(data.roomId);
+
       // DO NOT send "MOCIÓN" message to chat
       // DO NOT switch turns - keep current speaker
       // The user can now send a message in format "mocion:[mensaje]"
 
       console.log(
-        "📋 Motion request processed - user can now send motion message"
+        "📋 Motion request processed - user can now send motion message with 1 minute timer"
       );
 
       console.log("=== END REQUEST MOTION EVENT ===\n");
