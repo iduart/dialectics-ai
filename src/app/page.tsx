@@ -5,9 +5,16 @@ import { useSearchParams } from "next/navigation";
 import LandingPage from "@/components/LandingPage";
 import Chat from "@/components/Chat";
 
+interface DebateConfig {
+  description: string;
+  toleranceLevel: string;
+  duration: string;
+}
+
 function HomeContent() {
   const [roomId, setRoomId] = useState<string>("");
   const [username, setUsername] = useState<string>("");
+  const [debateConfig, setDebateConfig] = useState<DebateConfig | null>(null);
   const [isInChat, setIsInChat] = useState(false);
   const searchParams = useSearchParams();
 
@@ -19,15 +26,21 @@ function HomeContent() {
     }
   }, [searchParams]);
 
-  const handleJoinRoom = (roomId: string, username: string) => {
+  const handleJoinRoom = (
+    roomId: string,
+    username: string,
+    debateConfig: DebateConfig
+  ) => {
     setRoomId(roomId);
     setUsername(username);
+    setDebateConfig(debateConfig);
     setIsInChat(true);
   };
 
-
-  if (isInChat) {
-    return <Chat roomId={roomId} username={username} />;
+  if (isInChat && debateConfig) {
+    return (
+      <Chat roomId={roomId} username={username} debateConfig={debateConfig} />
+    );
   }
 
   return <LandingPage onJoinRoom={handleJoinRoom} />;
