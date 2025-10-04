@@ -26,6 +26,8 @@ export default function Chat({
   const [socketId, setSocketId] = useState<string>("");
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [turnTimeLeft, setTurnTimeLeft] = useState<number>(60);
+  const [motionTimeLeft, setMotionTimeLeft] = useState<number>(0);
+  const [isWaitingForMotion, setIsWaitingForMotion] = useState(false);
   const [isDebateEnded, setIsDebateEnded] = useState(false);
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -54,6 +56,9 @@ export default function Chat({
     onStartDebateFailed,
     onWaitingForCreator,
     onTurnTimeUpdate,
+    onMotionTimeUpdate,
+    onMotionStateUpdate,
+    requestMotion,
   } = useSocket();
 
   useEffect(() => {
@@ -104,6 +109,7 @@ export default function Chat({
     });
 
     const unsubscribeRoomUpdated = onRoomUpdated((roomInfo: RoomInfo) => {
+      console.log("🏠 Room updated:", JSON.stringify(roomInfo, null, 2));
       setRoomInfo(roomInfo);
       // Reset turn timer when room updates (new turn)
       if (roomInfo.debateStarted) {
@@ -167,6 +173,28 @@ export default function Chat({
       }
     );
 
+    const unsubscribeMotionTimeUpdate = onMotionTimeUpdate(
+      (data: { timeLeft: number; roomId: string }) => {
+        console.log("⏰ Received motion time update:", data);
+        if (data.roomId === roomId) {
+          setMotionTimeLeft(data.timeLeft);
+          console.log("⏰ Updated motion time to:", data.timeLeft);
+        }
+      }
+    );
+
+    const unsubscribeMotionStateUpdate = onMotionStateUpdate(
+      (data: { waitingForMotion: boolean; roomId: string }) => {
+        console.log("📋 Received motion state update:", data);
+        console.log("📋 Current roomId:", roomId);
+        if (data.roomId === roomId) {
+          setIsWaitingForMotion(data.waitingForMotion);
+          console.log("📋 Updated motion state to:", data.waitingForMotion);
+          console.log("📋 isMyTurn:", isMyTurn);
+        }
+      }
+    );
+
     return () => {
       unsubscribeReceive();
       unsubscribeJoin();
@@ -182,6 +210,8 @@ export default function Chat({
       unsubscribeStartDebateFailed();
       unsubscribeWaitingForCreator();
       unsubscribeTurnTimeUpdate();
+      unsubscribeMotionTimeUpdate();
+      unsubscribeMotionStateUpdate();
     };
   }, [
     onReceiveMessage,
@@ -198,6 +228,8 @@ export default function Chat({
     onStartDebateFailed,
     onWaitingForCreator,
     onTurnTimeUpdate,
+    onMotionTimeUpdate,
+    onMotionStateUpdate,
   ]);
 
   useEffect(() => {
@@ -220,6 +252,17 @@ export default function Chat({
   const handleStartDebate = () => {
     startDebate(roomId, username);
     setErrorMessage(""); // Clear any previous error messages
+  };
+
+  const handleRequestMotion = () => {
+    if (socket && isWaitingForMotion && isMyTurn) {
+      // Request motion but don't send message to chat
+      requestMotion({
+        roomId,
+        username,
+      });
+      setErrorMessage("");
+    }
   };
 
   // Check if it's the current user's turn
@@ -480,6 +523,8 @@ export default function Chat({
                 ? "Debate hasn't started yet"
                 : !isMyTurn && roomInfo?.participants.length === 2
                 ? `Wait for ${roomInfo.currentSpeaker}'s turn...`
+                : isWaitingForMotion && isMyTurn
+                ? "Type your motion: mocion:[your clarification]"
                 : "Type your message..."
             }
             className="flex-1 border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
@@ -502,6 +547,35 @@ export default function Chat({
             className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-6 py-2 rounded-lg font-medium transition-colors"
           >
             Send
+          </button>
+          {/* Motion Button - Always visible but disabled when not waiting for motion */}
+          {(() => {
+            console.log("🔍 Motion button conditions:", {
+              isWaitingForMotion,
+              isMyTurn,
+              motionTimeLeft,
+              shouldShow: isWaitingForMotion && isMyTurn,
+            });
+            return null;
+          })()}
+
+          <button
+            type="button"
+            onClick={handleRequestMotion}
+            className={`px-6 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 ${
+              isWaitingForMotion && isMyTurn
+                ? "bg-orange-500 hover:bg-orange-600 text-white"
+                : "bg-gray-400 text-gray-600"
+            }`}
+            disabled={!isWaitingForMotion || !isMyTurn}
+          >
+            <span>📋</span>
+            <span>Moción</span>
+            {isWaitingForMotion && motionTimeLeft > 0 && (
+              <span className="text-xs bg-orange-600 px-2 py-1 rounded">
+                {motionTimeLeft}s
+              </span>
+            )}
           </button>
         </form>
         {!connected && (

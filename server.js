@@ -22,6 +22,8 @@ const userViolations = new Map(); // roomId -> { username: violationCount }
 const roomParticipants = new Map(); // roomId -> { participants: [], currentTurn: 0, debateStarted: false }
 const roomConfigs = new Map(); // roomId -> { description, toleranceLevel, duration }
 const turnTimers = new Map(); // roomId -> { timer: Timeout, timeLeft: number }
+const motionTimers = new Map(); // roomId -> { timer: Timeout, timeLeft: number }
+const motionStates = new Map(); // roomId -> { waitingForMotion: boolean, lastIntervention: any }
 
 // Initialize OpenAI client (primary AI)
 const openai = process.env.OPENAI_API_KEY
@@ -120,15 +122,17 @@ Si la intervención fue sobre PERSONA 2 → "Continúa PERSONA 1"
 
 MOCIÓN (solo aplica para información no veraz)
 
-Cuando un punto negativo sea asignado por información no veraz, el participante puede escribir "MOCIÓN".
+Cuando un punto negativo sea asignado por información no veraz, el participante puede solicitar una moción.
 
-Al recibir "MOCIÓN":
+FORMATO DE MOCIÓN: Los mensajes que comiencen con "mocion:" deben ser tratados como mociones. Ejemplo: "mocion:quiero aclarar que me refería a casos electivos"
+
+Al recibir un mensaje en formato "mocion:[mensaje]":
 
 Si el punto negativo fue por insultos o desvío → "No aplica moción en este caso. Continúa el debate."
 
 Si el punto negativo fue por información no veraz → "Has solicitado una MOCIÓN. Validaré tu aclaración en el siguiente mensaje."
 
-Evalúa la aclaración:
+Evalúa la aclaración contenida en el mensaje después de "mocion:":
 
 MOCIÓN válida:
 "Se retira el punto negativo tras la aclaración. Sin embargo, se aclara que la afirmación inicial no es correcta: [explicación breve y tajante]. La palabra pasa al otro participante."
@@ -292,10 +296,6 @@ app.prepare().then(() => {
           roomId: roomId,
         });
 
-        console.log(
-          `⏰ Room ${roomId} turn time remaining: ${timerInfo.timeLeft}s`
-        );
-
         if (timerInfo.timeLeft <= 0) {
           clearInterval(countdownInterval);
         }
@@ -323,6 +323,77 @@ app.prepare().then(() => {
       turnTimers.delete(roomId);
       console.log(`⏰ Cleared turn timer for room ${roomId}`);
     }
+  }
+
+  function clearMotionTimer(roomId) {
+    const timerInfo = motionTimers.get(roomId);
+    if (timerInfo) {
+      clearTimeout(timerInfo.timer);
+      if (timerInfo.countdownInterval) {
+        clearInterval(timerInfo.countdownInterval);
+      }
+      motionTimers.delete(roomId);
+      console.log(`⏰ Cleared motion timer for room ${roomId}`);
+    }
+  }
+
+  function startMotionTimer(roomId) {
+    console.log(`⏰ Starting motion timer for room ${roomId}`);
+
+    // Clear existing motion timer if any
+    clearMotionTimer(roomId);
+
+    // Start new timer (15 seconds)
+    const timer = setTimeout(() => {
+      console.log(`⏰ Motion timer expired for room ${roomId}`);
+      handleMotionTimeout(roomId);
+    }, 15000); // 15 seconds
+
+    // Start countdown updates every second
+    const countdownInterval = setInterval(() => {
+      const timerInfo = motionTimers.get(roomId);
+      if (timerInfo) {
+        timerInfo.timeLeft--;
+
+        // Emit countdown update to room
+        io.to(roomId).emit("motion-time-update", {
+          timeLeft: timerInfo.timeLeft,
+          roomId: roomId,
+        });
+
+        if (timerInfo.timeLeft <= 0) {
+          clearInterval(countdownInterval);
+        }
+      } else {
+        clearInterval(countdownInterval);
+      }
+    }, 1000);
+
+    // Store timer info
+    motionTimers.set(roomId, {
+      timer: timer,
+      countdownInterval: countdownInterval,
+      timeLeft: 15,
+      startTime: Date.now(),
+    });
+  }
+
+  function handleMotionTimeout(roomId) {
+    console.log(
+      `⏰ Motion timeout for room ${roomId} - user accepted AI intervention, proceeding to next turn`
+    );
+
+    // Clear motion state
+    motionStates.delete(roomId);
+
+    // Notify clients that motion state is cleared
+    io.to(roomId).emit("motion-state-update", {
+      waitingForMotion: false,
+      roomId: roomId,
+    });
+
+    // Continue to next turn (user accepted AI intervention by not requesting motion)
+    switchToNextTurn(roomId);
   }
 
   function switchToNextTurn(roomId) {
@@ -536,71 +607,128 @@ app.prepare().then(() => {
       }
       messageStore.set(data.roomId, messages);
 
-      // Switch turns (only if there are 2 participants and debate has started)
+      // Broadcast original message to room FIRST
+      io.to(data.roomId).emit("receive-message", messageData);
+
+      // Check for AI intervention before switching turns
       if (
         roomData &&
         roomData.participants.length === 2 &&
         roomData.debateStarted
       ) {
-        // Clear current turn timer
-        clearTurnTimer(data.roomId);
-
-        // Switch to next participant
-        roomData.currentTurn = (roomData.currentTurn + 1) % 2;
-        roomData.currentSpeaker =
-          roomData.participants[roomData.currentTurn].username;
-        roomParticipants.set(data.roomId, roomData);
-
-        // Start timer for new turn
-        startTurnTimer(data.roomId);
-
-        // Notify all participants about turn change
-        const roomInfo = {
-          participants: roomData.participants,
-          currentTurn: roomData.currentTurn,
-          currentSpeaker: roomData.currentSpeaker,
-          debateStarted: roomData.debateStarted,
-        };
-        io.to(data.roomId).emit("room-updated", roomInfo);
-      }
-
-      // Broadcast original message to room
-      io.to(data.roomId).emit("receive-message", messageData);
-
-      // AI Moderation
-      try {
-        const moderationResult = await analyzeMessage(
+        // Analyze message with AI
+        const aiResult = await analyzeMessage(
           data.message,
           data.username,
           data.roomId
         );
 
-        if (moderationResult.shouldRespond && moderationResult.response) {
-          // Create AI moderator message
-          const aiMessage = {
-            id: `ai-${Date.now()}`,
-            message: moderationResult.response,
-            username: "AI Moderator",
-            timestamp: new Date().toISOString(),
-            socketId: "ai-moderator",
-            isAIModerator: true,
-            reason: moderationResult.reason,
-          };
+        if (aiResult.shouldRespond) {
+          // AI intervened - DO NOT switch turns, keep current speaker and start motion timer
+          console.log(
+            `🤖 AI intervened for ${data.username}, keeping turn and starting motion timer`
+          );
 
-          // Store AI message
-          messages.push(aiMessage);
-          messageStore.set(data.roomId, messages);
+          // Keep the current turn (don't switch to next participant)
+          // The current speaker stays the same and can request a motion
 
-          // Broadcast AI message to room
-          io.to(data.roomId).emit("receive-message", aiMessage);
+          // IMPORTANT: Update the room data to ensure the current speaker is correctly set
+          roomData.currentSpeaker = data.username;
+          roomParticipants.set(data.roomId, roomData);
+
+          // Set motion state
+          motionStates.set(data.roomId, {
+            waitingForMotion: true,
+            lastIntervention: aiResult,
+            currentSpeaker: data.username,
+          });
 
           console.log(
-            `AI Moderator responded to message from ${data.username}: ${moderationResult.reason}`
+            "📋 Motion state set for:",
+            data.username,
+            "in room:",
+            data.roomId
           );
+
+          // Start motion timer (15 seconds)
+          startMotionTimer(data.roomId);
+
+          // Notify clients about motion state
+          console.log("📋 Emitting motion-state-update:", {
+            waitingForMotion: true,
+            roomId: data.roomId,
+          });
+          io.to(data.roomId).emit("motion-state-update", {
+            waitingForMotion: true,
+            roomId: data.roomId,
+          });
+
+          // Also emit room-updated to ensure the current speaker is correctly set on client
+          const roomInfo = {
+            participants: roomData.participants,
+            currentTurn: roomData.currentTurn,
+            currentSpeaker: roomData.currentSpeaker,
+            debateStarted: roomData.debateStarted,
+          };
+          console.log(
+            "📋 Emitting room-updated to maintain turn:",
+            JSON.stringify(roomInfo, null, 2)
+          );
+          io.to(data.roomId).emit("room-updated", roomInfo);
+
+          // Send AI intervention message
+          if (aiResult.response) {
+            const aiMessage = {
+              id: `ai-${Date.now()}`,
+              message: aiResult.response,
+              username: "Moderador",
+              timestamp: new Date().toISOString(),
+              socketId: "ai-moderator",
+              isAIModerator: true,
+              reason: aiResult.reason,
+            };
+
+            // Store AI message
+            messages.push(aiMessage);
+            messageStore.set(data.roomId, messages);
+
+            // Broadcast AI message to room
+            io.to(data.roomId).emit("receive-message", aiMessage);
+
+            console.log(
+              `AI Moderator responded to message from ${data.username}: ${aiResult.reason}`
+            );
+          }
+
+          // IMPORTANT: Do NOT switch turns here - keep the current speaker
+          // The turn will only switch after motion timeout or motion request
+        } else {
+          // No AI intervention - proceed with normal turn switch
+          console.log(
+            `🤖 No AI intervention for ${data.username}, switching turns`
+          );
+
+          // Clear current turn timer
+          clearTurnTimer(data.roomId);
+
+          // Switch to next participant
+          roomData.currentTurn = (roomData.currentTurn + 1) % 2;
+          roomData.currentSpeaker =
+            roomData.participants[roomData.currentTurn].username;
+          roomParticipants.set(data.roomId, roomData);
+
+          // Start timer for new turn
+          startTurnTimer(data.roomId);
+
+          // Notify all participants about turn change
+          const roomInfo = {
+            participants: roomData.participants,
+            currentTurn: roomData.currentTurn,
+            currentSpeaker: roomData.currentSpeaker,
+            debateStarted: roomData.debateStarted,
+          };
+          io.to(data.roomId).emit("room-updated", roomInfo);
         }
-      } catch (error) {
-        console.error("AI Moderation failed:", error);
-        // Continue normally if AI moderation fails
       }
     });
 
@@ -664,6 +792,50 @@ app.prepare().then(() => {
       }
     });
 
+    // Handle motion request
+    socket.on("request-motion", async (data) => {
+      console.log("\n=== REQUEST MOTION EVENT ===");
+      console.log("Room ID:", data.roomId);
+      console.log("Username:", data.username);
+
+      const roomData = roomParticipants.get(data.roomId);
+      const motionState = motionStates.get(data.roomId);
+
+      if (!roomData || !motionState || !motionState.waitingForMotion) {
+        console.log("⚠️ Motion request invalid - no active motion state");
+        return;
+      }
+
+      if (motionState.currentSpeaker !== data.username) {
+        console.log("⚠️ Motion request invalid - not current speaker");
+        return;
+      }
+
+      console.log("📋 Processing motion request from:", data.username);
+
+      // Clear motion timer
+      clearMotionTimer(data.roomId);
+
+      // Clear motion state
+      motionStates.delete(data.roomId);
+
+      // Notify clients that motion state is cleared
+      io.to(data.roomId).emit("motion-state-update", {
+        waitingForMotion: false,
+        roomId: data.roomId,
+      });
+
+      // DO NOT send "MOCIÓN" message to chat
+      // DO NOT switch turns - keep current speaker
+      // The user can now send a message in format "mocion:[mensaje]"
+
+      console.log(
+        "📋 Motion request processed - user can now send motion message"
+      );
+
+      console.log("=== END REQUEST MOTION EVENT ===\n");
+    });
+
     // Handle disconnect
     socket.on("disconnect", () => {
       console.log("\n=== DISCONNECT EVENT ===");
@@ -717,6 +889,8 @@ app.prepare().then(() => {
             roomParticipants.delete(roomId);
             roomConfigs.delete(roomId);
             clearTurnTimer(roomId);
+            clearMotionTimer(roomId);
+            motionStates.delete(roomId);
           }
 
           console.log(

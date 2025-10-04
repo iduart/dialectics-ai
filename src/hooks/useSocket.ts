@@ -198,6 +198,15 @@ export const useSocket = () => {
     [socket]
   );
 
+  const requestMotion = useCallback(
+    (data: { roomId: string; username: string }) => {
+      if (socket) {
+        socket.emit("request-motion", data);
+      }
+    },
+    [socket]
+  );
+
   const onDebateStarted = useCallback(
     (callback: (roomInfo: RoomInfo) => void) => {
       if (socket) {
@@ -253,6 +262,30 @@ export const useSocket = () => {
     [socket]
   );
 
+  const onMotionTimeUpdate = useCallback(
+    (callback: (data: { timeLeft: number; roomId: string }) => void) => {
+      if (socket) {
+        socket.on("motion-time-update", callback);
+        return () => socket.off("motion-time-update", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
+  const onMotionStateUpdate = useCallback(
+    (
+      callback: (data: { waitingForMotion: boolean; roomId: string }) => void
+    ) => {
+      if (socket) {
+        socket.on("motion-state-update", callback);
+        return () => socket.off("motion-state-update", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
   return {
     socket,
     connected,
@@ -273,5 +306,8 @@ export const useSocket = () => {
     onStartDebateFailed,
     onWaitingForCreator,
     onTurnTimeUpdate,
+    onMotionTimeUpdate,
+    onMotionStateUpdate,
+    requestMotion,
   };
 };
