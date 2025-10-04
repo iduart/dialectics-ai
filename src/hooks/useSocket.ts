@@ -242,6 +242,17 @@ export const useSocket = () => {
     [socket]
   );
 
+  const onTurnTimeUpdate = useCallback(
+    (callback: (data: { timeLeft: number; roomId: string }) => void) => {
+      if (socket) {
+        socket.on("turn-time-update", callback);
+        return () => socket.off("turn-time-update", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
   return {
     socket,
     connected,
@@ -261,5 +272,6 @@ export const useSocket = () => {
     onDebateNotStarted,
     onStartDebateFailed,
     onWaitingForCreator,
+    onTurnTimeUpdate,
   };
 };

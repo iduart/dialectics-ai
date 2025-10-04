@@ -25,6 +25,7 @@ export default function Chat({
   const [newMessage, setNewMessage] = useState("");
   const [socketId, setSocketId] = useState<string>("");
   const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [turnTimeLeft, setTurnTimeLeft] = useState<number>(60);
   const [isDebateEnded, setIsDebateEnded] = useState(false);
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -52,6 +53,7 @@ export default function Chat({
     onDebateNotStarted,
     onStartDebateFailed,
     onWaitingForCreator,
+    onTurnTimeUpdate,
   } = useSocket();
 
   useEffect(() => {
@@ -93,8 +95,8 @@ export default function Chat({
       setMessages((prev) => [...prev, message]);
     });
 
-    const unsubscribeJoin = onUserJoined((data: any) => {
-      console.log(`User ${data.username} joined the room`);
+    const unsubscribeJoin = onUserJoined((socketId: string) => {
+      console.log(`User with socket ${socketId} joined the room`);
     });
 
     const unsubscribeHistory = onMessageHistory((history: MessageType[]) => {
@@ -103,6 +105,10 @@ export default function Chat({
 
     const unsubscribeRoomUpdated = onRoomUpdated((roomInfo: RoomInfo) => {
       setRoomInfo(roomInfo);
+      // Reset turn timer when room updates (new turn)
+      if (roomInfo.debateStarted) {
+        setTurnTimeLeft(60);
+      }
     });
 
     const unsubscribeRoomFull = onRoomFull((data: { message: string }) => {
@@ -151,6 +157,16 @@ export default function Chat({
       }
     );
 
+    const unsubscribeTurnTimeUpdate = onTurnTimeUpdate(
+      (data: { timeLeft: number; roomId: string }) => {
+        console.log("⏰ Received turn time update:", data);
+        if (data.roomId === roomId) {
+          setTurnTimeLeft(data.timeLeft);
+          console.log("⏰ Updated turn time to:", data.timeLeft);
+        }
+      }
+    );
+
     return () => {
       unsubscribeReceive();
       unsubscribeJoin();
@@ -165,6 +181,7 @@ export default function Chat({
       unsubscribeDebateNotStarted();
       unsubscribeStartDebateFailed();
       unsubscribeWaitingForCreator();
+      unsubscribeTurnTimeUpdate();
     };
   }, [
     onReceiveMessage,
@@ -180,6 +197,7 @@ export default function Chat({
     onDebateNotStarted,
     onStartDebateFailed,
     onWaitingForCreator,
+    onTurnTimeUpdate,
   ]);
 
   useEffect(() => {
@@ -337,6 +355,30 @@ export default function Chat({
                           : `👤 ${roomInfo.currentSpeaker}'s Turn`}
                       </span>
                     </div>
+                    {/* Turn Timer */}
+                    <div className="mb-2">
+                      <div
+                        className={`text-2xl font-mono font-bold ${
+                          isMyTurn
+                            ? turnTimeLeft <= 10
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-green-600 dark:text-green-400"
+                            : "text-gray-500 dark:text-gray-400"
+                        }`}
+                      >
+                        {turnTimeLeft}s
+                      </div>
+                      <div
+                        className={`text-xs ${
+                          isMyTurn
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-gray-500 dark:text-gray-400"
+                        }`}
+                      >
+                        Time remaining
+                      </div>
+                    </div>
+
                     <p
                       className={`text-sm ${
                         isMyTurn
@@ -385,7 +427,7 @@ export default function Chat({
               Debate Ended
             </p>
             <p className="text-sm mt-1">
-              Time's up! The discussion has concluded.
+              Time&apos;s up! The discussion has concluded.
             </p>
           </div>
         ) : messages.length === 0 ? (

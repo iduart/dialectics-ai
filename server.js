@@ -21,6 +21,7 @@ const userViolations = new Map(); // roomId -> { username: violationCount }
 // Room management for 2-person debates
 const roomParticipants = new Map(); // roomId -> { participants: [], currentTurn: 0, debateStarted: false }
 const roomConfigs = new Map(); // roomId -> { description, toleranceLevel, duration }
+const turnTimers = new Map(); // roomId -> { timer: Timeout, timeLeft: number }
 
 // Initialize OpenAI client (primary AI)
 const openai = process.env.OPENAI_API_KEY
@@ -201,6 +202,8 @@ Solo responde si el mensaje viola claramente las reglas del debate (insultos, de
 // Initialize AI Service
 const aiService = new AIService();
 
+// Turn timer management functions (will be defined inside app.prepare() where io is available)
+
 // Simple moderation function using the AI service
 async function analyzeMessage(message, username, roomId) {
   if (!aiService.isAvailable()) {
@@ -263,6 +266,106 @@ app.prepare().then(() => {
     },
     allowEIO3: true,
   });
+
+  // Turn timer management functions (defined here where io is available)
+  function startTurnTimer(roomId) {
+    console.log(`⏰ Starting turn timer for room ${roomId}`);
+
+    // Clear existing timer if any
+    clearTurnTimer(roomId);
+
+    // Start new timer (60 seconds)
+    const timer = setTimeout(() => {
+      console.log(`⏰ Turn timer expired for room ${roomId}`);
+      switchToNextTurn(roomId);
+    }, 60000); // 1 minute = 60,000ms
+
+    // Start countdown updates every second
+    const countdownInterval = setInterval(() => {
+      const timerInfo = turnTimers.get(roomId);
+      if (timerInfo) {
+        timerInfo.timeLeft--;
+
+        // Emit countdown update to room
+        io.to(roomId).emit("turn-time-update", {
+          timeLeft: timerInfo.timeLeft,
+          roomId: roomId,
+        });
+
+        console.log(
+          `⏰ Room ${roomId} turn time remaining: ${timerInfo.timeLeft}s`
+        );
+
+        if (timerInfo.timeLeft <= 0) {
+          clearInterval(countdownInterval);
+        }
+      } else {
+        clearInterval(countdownInterval);
+      }
+    }, 1000);
+
+    // Store timer info (including the countdown interval)
+    turnTimers.set(roomId, {
+      timer: timer,
+      countdownInterval: countdownInterval,
+      timeLeft: 60,
+      startTime: Date.now(),
+    });
+  }
+
+  function clearTurnTimer(roomId) {
+    const timerInfo = turnTimers.get(roomId);
+    if (timerInfo) {
+      clearTimeout(timerInfo.timer);
+      if (timerInfo.countdownInterval) {
+        clearInterval(timerInfo.countdownInterval);
+      }
+      turnTimers.delete(roomId);
+      console.log(`⏰ Cleared turn timer for room ${roomId}`);
+    }
+  }
+
+  function switchToNextTurn(roomId) {
+    console.log(`🔄 Switching to next turn in room ${roomId}`);
+
+    const roomData = roomParticipants.get(roomId);
+    if (!roomData || !roomData.debateStarted) {
+      console.log(
+        `⚠️ Cannot switch turn - room ${roomId} not found or debate not started`
+      );
+      return;
+    }
+
+    // Switch to next participant
+    roomData.currentTurn =
+      (roomData.currentTurn + 1) % roomData.participants.length;
+    roomData.currentSpeaker =
+      roomData.participants[roomData.currentTurn].username;
+
+    console.log(
+      `🔄 Turn switched to: ${roomData.currentSpeaker} in room ${roomId}`
+    );
+
+    // Emit turn update to room
+    io.to(roomId).emit("room-updated", {
+      participants: roomData.participants,
+      currentTurn: roomData.currentTurn,
+      currentSpeaker: roomData.currentSpeaker,
+      debateStarted: roomData.debateStarted,
+    });
+
+    // Start timer for new turn
+    startTurnTimer(roomId);
+
+    // Emit turn timeout message
+    io.to(roomId).emit("message", {
+      id: Date.now(),
+      username: "Moderador",
+      content: `⏰ Tiempo agotado. Continúa ${roomData.currentSpeaker}`,
+      timestamp: new Date().toISOString(),
+      isOwn: false,
+    });
+  }
 
   io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
@@ -439,14 +542,23 @@ app.prepare().then(() => {
         roomData.participants.length === 2 &&
         roomData.debateStarted
       ) {
+        // Clear current turn timer
+        clearTurnTimer(data.roomId);
+
+        // Switch to next participant
         roomData.currentTurn = (roomData.currentTurn + 1) % 2;
+        roomData.currentSpeaker =
+          roomData.participants[roomData.currentTurn].username;
         roomParticipants.set(data.roomId, roomData);
+
+        // Start timer for new turn
+        startTurnTimer(data.roomId);
 
         // Notify all participants about turn change
         const roomInfo = {
           participants: roomData.participants,
           currentTurn: roomData.currentTurn,
-          currentSpeaker: roomData.participants[roomData.currentTurn].username,
+          currentSpeaker: roomData.currentSpeaker,
           debateStarted: roomData.debateStarted,
         };
         io.to(data.roomId).emit("room-updated", roomInfo);
@@ -514,13 +626,18 @@ app.prepare().then(() => {
         console.log("Starting debate - conditions met");
         roomData.debateStarted = true;
         roomData.currentTurn = 0; // Start with first participant
+        roomData.currentSpeaker =
+          roomData.participants[roomData.currentTurn].username;
         roomParticipants.set(data.roomId, roomData);
+
+        // Start turn timer for first participant
+        startTurnTimer(data.roomId);
 
         // Notify all participants that debate has started
         const roomInfo = {
           participants: roomData.participants,
           currentTurn: roomData.currentTurn,
-          currentSpeaker: roomData.participants[roomData.currentTurn].username,
+          currentSpeaker: roomData.currentSpeaker,
           debateStarted: roomData.debateStarted,
         };
 
@@ -599,6 +716,7 @@ app.prepare().then(() => {
             // Clean up empty room
             roomParticipants.delete(roomId);
             roomConfigs.delete(roomId);
+            clearTurnTimer(roomId);
           }
 
           console.log(
