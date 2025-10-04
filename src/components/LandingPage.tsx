@@ -129,11 +129,7 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
                   placeholder="Describe the topic or provide context for the debate..."
                   rows={3}
                   className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-none"
-                  maxLength={500}
                 />
-                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                  {debateDescription.length}/500 characters
-                </p>
               </div>
 
               {/* Tolerance Level */}
