@@ -14,6 +14,7 @@ interface LandingPageProps {
 
 interface DebateConfig {
   description: string;
+  customSystemPrompt: string;
   toleranceLevel: string;
   duration: string;
 }
@@ -23,14 +24,16 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
   const [roomId, setRoomId] = useState("");
   const [activeTab, setActiveTab] = useState<"create" | "join">("create");
   const [debateDescription, setDebateDescription] = useState("");
+  const [customSystemPrompt, setCustomSystemPrompt] = useState("");
   const [toleranceLevel, setToleranceLevel] = useState("1");
   const [duration, setDuration] = useState("30");
 
   const handleCreateRoom = () => {
-    if (username.trim() && debateDescription.trim()) {
+    if (username.trim() && customSystemPrompt.trim()) {
       const newRoomId = uuidv4();
       const debateConfig: DebateConfig = {
         description: debateDescription,
+        customSystemPrompt: customSystemPrompt.trim(),
         toleranceLevel: toleranceLevel,
         duration: duration,
       };
@@ -114,13 +117,13 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
           {/* Tab Content */}
           {activeTab === "create" ? (
             <>
-              {/* Debate Description */}
+              {/* Debate Description - DISABLED */}
               <div>
                 <label
                   htmlFor="debateDescription"
-                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+                  className="block text-sm font-medium text-gray-400 dark:text-slate-500 mb-2"
                 >
-                  Debate Topic / Context
+                  Debate Topic / Context (Disabled for testing)
                 </label>
                 <textarea
                   id="debateDescription"
@@ -128,8 +131,31 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
                   onChange={(e) => setDebateDescription(e.target.value)}
                   placeholder="Describe the topic or provide context for the debate..."
                   rows={3}
-                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-none"
+                  disabled
+                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-gray-100 dark:bg-slate-900 text-gray-500 dark:text-slate-500 placeholder-gray-400 dark:placeholder-slate-600 cursor-not-allowed resize-none"
                 />
+              </div>
+
+              {/* Custom System Prompt - REQUIRED */}
+              <div>
+                <label
+                  htmlFor="customSystemPrompt"
+                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+                >
+                  Custom System Prompt <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  id="customSystemPrompt"
+                  value={customSystemPrompt}
+                  onChange={(e) => setCustomSystemPrompt(e.target.value)}
+                  placeholder="Enter your custom system prompt (required)..."
+                  rows={6}
+                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-none text-sm"
+                  required
+                />
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                  Define the AI behavior and rules for your debate session.
+                </p>
               </div>
 
               {/* Tolerance Level */}
@@ -184,8 +210,8 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
               {/* Create Room Button */}
               <button
                 onClick={handleCreateRoom}
-                disabled={!username.trim() || !debateDescription.trim()}
-                className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white py-3 rounded-lg font-medium transition-colors"
+                disabled={!username.trim() || !customSystemPrompt.trim()}
+                className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-slate-600 text-white py-3 rounded-lg font-medium transition-colors disabled:cursor-not-allowed"
               >
                 Create New Room
               </button>

@@ -16,14 +16,31 @@ async function testAPI() {
     );
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o",
       messages: [
         {
+          role: "system",
+          content:
+            "You are a debate moderator. IMPORTANTE: Siempre responde ÚNICAMENTE con JSON válido. No incluyas texto adicional, explicaciones, ni markdown code blocks. Solo el JSON puro.",
+        },
+        {
           role: "user",
-          content: "Say hello",
+          content: `Analiza este mensaje de "testuser": "hello"
+
+CRÍTICO: Responde ÚNICAMENTE con JSON válido. NO uses markdown, NO incluyas texto adicional, NO uses \`\`\`json\`\`\`. Solo el JSON puro.
+
+Responde con JSON en este formato exacto:
+{
+  "shouldRespond": true/false,
+  "response": "tu mensaje de moderación si shouldRespond es true",
+  "reason": "breve razón de la decisión"
+}
+
+Solo responde si el mensaje viola claramente las reglas del debate (insultos, desvío del tema, información no veraz, MOCIÓN, o ULTIMA INTERVENCION). Si no hay violación, shouldRespond debe ser false.`,
         },
       ],
-      max_tokens: 10,
+      temperature: 0.3,
+      max_tokens: 200,
     });
 
     console.log("✅ API Test Successful!");

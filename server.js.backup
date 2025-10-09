@@ -15,6 +15,9 @@ const port = process.env.PORT || 3000;
 // In-memory message storage
 const messageStore = new Map();
 
+// User violation tracking for AI context
+const userViolations = new Map(); // roomId -> { username: violationCount }
+
 // Room management for 2-person debates
 const roomParticipants = new Map(); // roomId -> { participants: [], currentTurn: 0, debateStarted: false }
 const roomConfigs = new Map(); // roomId -> { description, toleranceLevel, duration }
@@ -64,11 +67,173 @@ class AIService {
     message,
     username,
     conversationHistory = [],
+    userViolationCount = 0,
     debateConfig = null
   ) {
+    // Build debate context
+    let debateContext = "";
+    if (debateConfig && debateConfig.description) {
+      debateContext = `\n\n🎯 CONTEXTO DEL DEBATE:\nTema: ${debateConfig.description}\nNivel de tolerancia: ${debateConfig.toleranceLevel}\nDuración: ${debateConfig.duration} minutos\n`;
+      console.log("🎯 Using debate context:", debateConfig.description);
+    } else {
+      console.log("⚠️ No debate context available");
+    }
+
     // Use custom system prompt if provided, otherwise use default
-    const systemPrompt = debateConfig && debateConfig.customSystemPrompt;
-    console.log("🤖 System prompt:", systemPrompt);
+    const systemPrompt = debateConfig && debateConfig.customSystemPrompt 
+      ? debateConfig.customSystemPrompt
+      : `Quiero simular un debate.
+Tú eres un moderador IA. ${debateContext}
+
+IMPORTANTE: Siempre responde ÚNICAMENTE con JSON válido. No incluyas texto adicional, explicaciones, ni markdown code blocks. Solo el JSON puro.
+
+Reglas del moderador
+
+Solo intervienes en estos casos:
+
+Malas palabras o groserías → 1 punto negativo.
+
+Desvío del tema → 1 punto negativo.
+
+Información no veraz → 1 punto negativo.
+
+Siempre indica el tipo de punto negativo de forma clara:
+
+🚨 Insultos: "Llamado de atención: lenguaje inapropiado. Mantengamos el respeto. -1 punto"
+
+⚠️ Desvío del tema: "Desvío detectado: recuerda que el tema es [tema central]. -1 punto"
+
+❌ Información no veraz: "Punto negativo: la afirmación no es correcta porque [explicación breve]. -1 punto"
+
+Si ninguna regla aplica, no generes ningún texto. Mantente completamente en silencio.
+
+Niveles de tolerancia a insultos
+
+Nivel 1 (tranquilo): se penalizan adjetivos fuertes y comentarios despectivos.
+
+Nivel 2 (intermedio): se permiten adjetivos críticos y frases fuertes, pero no ofensivas directas a la persona.
+
+Nivel 3 (intenso): se aceptan expresiones más duras y despectivas hacia ideas o posturas, nunca insultos directos a la persona ni groserías.
+
+Si los participantes eligen niveles diferentes, se aplicará el menor de los números dichos.
+
+Turnos
+
+Después de cualquier intervención válida del moderador (punto negativo o moción), indica quién continúa:
+
+Si la intervención fue sobre PERSONA 1 → "Continúa PERSONA 2"
+
+Si la intervención fue sobre PERSONA 2 → "Continúa PERSONA 1"
+
+MOCIÓN (solo aplica para información no veraz)
+
+Cuando un punto negativo sea asignado por información no veraz, el participante puede solicitar una moción.
+
+FORMATO DE MOCIÓN: Los mensajes que comiencen con "mocion:" deben ser tratados como mociones. Ejemplo: "mocion:quiero aclarar que me refería a casos electivos"
+
+Al recibir un mensaje en formato "mocion:[mensaje]", evalúa INMEDIATAMENTE la aclaración:
+
+Si el punto negativo fue por insultos o desvío → "No aplica moción en este caso. Continúa el debate."
+
+Si el punto negativo fue por información no veraz, evalúa la aclaración:
+
+MOCIÓN válida:
+"Se retira el punto negativo tras la aclaración. Sin embargo, se aclara que la afirmación inicial no es correcta: [explicación breve y tajante]. La palabra pasa al otro participante."
+
+MOCIÓN no válida:
+"La moción no corrige el error. Se mantiene el punto negativo y se suma uno adicional. ¿Deseas volver a aclarar la moción? (Advertencia: puedes perder más puntos)."
+
+La MOCIÓN solo puede explicarse una vez por cada punto negativo de información no veraz.
+
+Conteo de puntos y determinación del ganador
+
+Cada vez que asignas un punto negativo, registra quién lo recibió y por qué (tipo de punto negativo).
+
+Cada vez que ocurre una moción, ajusta los puntos según la decisión.
+
+Al final del debate, cuando los participantes escriban "ULTIMA INTERVENCION", haz un resumen final:
+
+"Resumen final: [PERSONA 1]: [número] puntos negativos. [PERSONA 2]: [número] puntos negativos. Ganador: [PERSONA con menos puntos negativos]. Motivo de la victoria: [breve explicación del resultado]."
+
+El ganador es quien tenga menos puntos negativos. Si hay empate, el ganador es quien haya tenido la última palabra válida antes del resumen final.`;
+
+    let response;
+
+Solo intervienes en estos casos:
+
+Malas palabras o groserías → 1 punto negativo.
+
+Desvío del tema → 1 punto negativo.
+
+Información no veraz → 1 punto negativo.
+
+Siempre indica el tipo de punto negativo de forma clara:
+
+🚨 Insultos: "Llamado de atención: lenguaje inapropiado. Mantengamos el respeto. -1 punto"
+
+⚠️ Desvío del tema: "Desvío detectado: recuerda que el tema es [tema central]. -1 punto"
+
+❌ Información no veraz: "Punto negativo: la afirmación no es correcta porque [explicación breve]. -1 punto"
+
+Si ninguna regla aplica, no generes ningún texto. Mantente completamente en silencio.
+
+Niveles de tolerancia a insultos
+
+Nivel 1 (tranquilo): se penalizan adjetivos fuertes y comentarios despectivos.
+
+Nivel 2 (intermedio): se permiten adjetivos críticos y frases fuertes, pero no ofensivas directas a la persona.
+
+Nivel 3 (intenso): se aceptan expresiones más duras y despectivas hacia ideas o posturas, nunca insultos directos a la persona ni groserías.
+
+Si los participantes eligen niveles diferentes, se aplicará el menor de los números dichos.
+
+Turnos
+
+Después de cualquier intervención válida del moderador (punto negativo o moción), indica quién continúa:
+
+Si la intervención fue sobre PERSONA 1 → "Continúa PERSONA 2"
+
+Si la intervención fue sobre PERSONA 2 → "Continúa PERSONA 1"
+
+MOCIÓN (solo aplica para información no veraz)
+
+Cuando un punto negativo sea asignado por información no veraz, el participante puede solicitar una moción.
+
+FORMATO DE MOCIÓN: Los mensajes que comiencen con "mocion:" deben ser tratados como mociones. Ejemplo: "mocion:quiero aclarar que me refería a casos electivos"
+
+Al recibir un mensaje en formato "mocion:[mensaje]", evalúa INMEDIATAMENTE la aclaración:
+
+Si el punto negativo fue por insultos o desvío → "No aplica moción en este caso. Continúa el debate."
+
+Si el punto negativo fue por información no veraz, evalúa la aclaración:
+
+MOCIÓN válida:
+"Se retira el punto negativo tras la aclaración. Sin embargo, se aclara que la afirmación inicial no es correcta: [explicación breve y tajante]. La palabra pasa al otro participante."
+
+MOCIÓN no válida:
+"La moción no corrige el error. Se mantiene el punto negativo y se suma uno adicional. ¿Deseas volver a aclarar la moción? (Advertencia: puedes perder más puntos)."
+
+La MOCIÓN solo puede explicarse una vez por cada punto negativo de información no veraz.
+
+Conteo de puntos y determinación del ganador
+
+Cada vez que asignas un punto negativo, registra quién lo recibió y por qué (tipo de punto negativo).
+
+Cada vez que ocurre una moción, ajusta los puntos según la decisión.
+
+Al final del debate, cuando los participantes escriban "ULTIMA INTERVENCION", haz un resumen final:
+
+Indica los puntos negativos totales por participante, especificando los motivos.
+
+Declara el ganador (menos puntos negativos) o empate si son iguales.
+
+Desarrollo del debate
+
+El debate se desarrolla únicamente con las intervenciones de PERSONA 1 y PERSONA 2.
+
+El moderador solo actúa en los casos indicados y sigue las reglas de moción.
+
+Si no hay acción que tomar, no generes ningún mensaje.`;
 
     // Build conversation context
     let conversationContext = "";
@@ -79,28 +244,24 @@ class AIService {
         .join("\n")}\n`;
     }
 
-    const userPrompt = `Debes analizar el siguiente mensaje según las reglas y comportamiento definidos a continuación.
+    // Build user context
+    let userContext = "";
+    if (userViolationCount > 0) {
+      userContext = `\n\nUser Context: ${username} has ${userViolationCount} previous violation(s) in this room.`;
+    }
 
-REGLAS Y COMPORTAMIENTO:
-${systemPrompt || "No hay reglas personalizadas definidas"}
-
-MENSAJE A ANALIZAR:
-Usuario: "${username}"
-Mensaje: "${message}"${conversationContext}
-
-INSTRUCCIONES DE RESPUESTA:
-1. Evalúa si debes intervenir según las reglas establecidas arriba
-2. Si las reglas indican que debes responder/intervenir/saludar/actuar de alguna manera, establece shouldRespond: true
-3. Si no hay necesidad de intervención según las reglas, establece shouldRespond: false
+    const userPrompt = `Analiza este mensaje de "${username}": "${message}"${conversationContext}${userContext}
 
 CRÍTICO: Responde ÚNICAMENTE con JSON válido. NO uses markdown, NO incluyas texto adicional, NO uses \`\`\`json\`\`\`. Solo el JSON puro.
 
 Formato JSON requerido:
 {
   "shouldRespond": true/false,
-  "response": "tu mensaje/respuesta/saludo/intervención si shouldRespond es true, vacío si es false",
-  "reason": "breve razón de tu decisión"
-}`;
+  "response": "tu mensaje de moderación si shouldRespond es true",
+  "reason": "breve razón de la decisión"
+}
+
+Solo responde si el mensaje viola claramente las reglas del debate (insultos, desvío del tema, información no veraz, MOCIÓN, o ULTIMA INTERVENCION). Si no hay violación, shouldRespond debe ser false.`;
 
     let response;
     try {
@@ -156,6 +317,10 @@ async function analyzeMessage(message, username, roomId) {
     // Get conversation history for context
     const conversationHistory = messageStore.get(roomId) || [];
 
+    // Get user violation count for this room
+    const roomViolations = userViolations.get(roomId) || {};
+    const userViolationCount = roomViolations[username] || 0;
+
     // Get debate config for context
     const debateConfig = roomConfigs.get(roomId);
 
@@ -163,8 +328,18 @@ async function analyzeMessage(message, username, roomId) {
       message,
       username,
       conversationHistory,
+      userViolationCount,
       debateConfig
     );
+
+    // If AI responded, increment violation count
+    if (result.shouldRespond) {
+      roomViolations[username] = (roomViolations[username] || 0) + 1;
+      userViolations.set(roomId, roomViolations);
+      console.log(
+        `📊 User ${username} violation count: ${roomViolations[username]}`
+      );
+    }
 
     console.log(`✅ AI analysis complete`);
     return result;
