@@ -323,7 +323,7 @@ export default function Chat({
     let conversationContext = "";
     if (conversationHistory.length > 0) {
       conversationContext = `\n\nRecent conversation context:\n${conversationHistory
-        .map((msg) => `${msg.username}: ${msg.text}`)
+        .map((msg) => `${msg.username}: ${msg.message}`)
         .join("\n")}\n`;
     }
 
