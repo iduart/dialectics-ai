@@ -41,7 +41,6 @@ export const useSocket = () => {
         socketId: newSocket.id,
         timestamp: new Date().toISOString(),
         transport: newSocket.io.engine.transport.name,
-        url: newSocket.io.uri,
       });
       setConnected(true);
       // Force a re-render to update socket ID
