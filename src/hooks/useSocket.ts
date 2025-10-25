@@ -78,9 +78,8 @@ export const useSocket = () => {
       roomId: string,
       username: string,
       debateConfig?: {
-        description: string;
         toleranceLevel: string;
-        duration: string;
+        prompts?: string[];
       } | null
     ) => {
       if (socket) {

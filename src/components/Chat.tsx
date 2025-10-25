@@ -6,9 +6,9 @@ import Message from "./Message";
 
 interface DebateConfig {
   description: string;
-  customSystemPrompt?: string;
   toleranceLevel: string;
   duration: string;
+  prompts?: string[];
 }
 
 interface ChatProps {
@@ -31,7 +31,6 @@ export default function Chat({
   const [debateConfig, setDebateConfig] = useState<DebateConfig | null>(
     initialDebateConfig
   );
-  const [showPromptModal, setShowPromptModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -225,48 +224,6 @@ export default function Chat({
     }
   };
 
-  // Generate the full prompt that AI is using (matching server-side logic)
-  const getFullAIPrompt = () => {
-    const systemPrompt =
-      debateConfig?.customSystemPrompt ||
-      "No hay reglas personalizadas definidas";
-
-    // Get last 10 messages for context
-    const conversationHistory = messages.slice(-10);
-    let conversationContext = "";
-    if (conversationHistory.length > 0) {
-      conversationContext = `\n\nRecent conversation context:\n${conversationHistory
-        .map((msg) => `${msg.username}: ${msg.message}`)
-        .join("\n")}\n`;
-    }
-
-    const exampleMessage = "[El mensaje del usuario se analizará aquí]";
-    const exampleUsername = "[username]";
-
-    return `Debes analizar el siguiente mensaje según las reglas y comportamiento definidos a continuación.
-
-REGLAS Y COMPORTAMIENTO:
-${systemPrompt}
-
-MENSAJE A ANALIZAR:
-Usuario: "${exampleUsername}"
-Mensaje: "${exampleMessage}"${conversationContext}
-
-INSTRUCCIONES DE RESPUESTA:
-1. Evalúa si debes intervenir según las reglas establecidas arriba
-2. Si las reglas indican que debes responder/intervenir/saludar/actuar de alguna manera, establece shouldRespond: true
-3. Si no hay necesidad de intervención según las reglas, establece shouldRespond: false
-
-CRÍTICO: Responde ÚNICAMENTE con JSON válido. NO uses markdown, NO incluyas texto adicional, NO uses \`\`\`json\`\`\`. Solo el JSON puro.
-
-Formato JSON requerido:
-{
-  "shouldRespond": true/false,
-  "response": "tu mensaje/respuesta/saludo/intervención si shouldRespond es true, vacío si es false",
-  "reason": "breve razón de tu decisión"
-}`;
-  };
-
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-slate-900">
       {/* Header */}
@@ -312,12 +269,6 @@ Formato JSON requerido:
                   AI Moderator Active
                 </span>
               </div>
-              <button
-                onClick={() => setShowPromptModal(true)}
-                className="text-xs px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-md hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors border border-purple-300 dark:border-purple-700"
-              >
-                📝 View AI Prompt
-              </button>
             </div>
           </div>
           <div className="flex items-center space-x-2">
@@ -421,66 +372,6 @@ Formato JSON requerido:
           <p className="text-sm text-red-500 mt-2">{errorMessage}</p>
         )}
       </div>
-
-      {/* AI Prompt Modal */}
-      {showPromptModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            {/* Modal Header */}
-            <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-slate-700">
-              <h2 className="text-xl font-semibold text-gray-800 dark:text-slate-100">
-                🤖 AI Prompt Being Used
-              </h2>
-              <button
-                onClick={() => setShowPromptModal(false)}
-                className="text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200 text-2xl leading-none"
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="bg-gray-50 dark:bg-slate-900 rounded-lg p-4 border border-gray-200 dark:border-slate-700">
-                <pre className="text-xs text-gray-800 dark:text-slate-200 whitespace-pre-wrap font-mono">
-                  {getFullAIPrompt()}
-                </pre>
-              </div>
-
-              <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
-                  ℹ️ About This Prompt
-                </h3>
-                <p className="text-xs text-blue-700 dark:text-blue-400">
-                  This is the exact prompt that the AI uses to analyze each
-                  message in the debate. It includes your custom system prompt,
-                  the conversation context (last 10 messages), and instructions
-                  for how the AI should respond.
-                </p>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-6 border-t border-gray-200 dark:border-slate-700 flex justify-end space-x-3">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(getFullAIPrompt());
-                  alert("Prompt copied to clipboard!");
-                }}
-                className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                📋 Copy to Clipboard
-              </button>
-              <button
-                onClick={() => setShowPromptModal(false)}
-                className="px-4 py-2 bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600 text-gray-800 dark:text-slate-200 rounded-lg text-sm font-medium transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

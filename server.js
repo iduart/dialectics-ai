@@ -56,16 +56,14 @@ class AIService {
     return completion.choices[0]?.message?.content;
   }
 
-  // AI Moderation for debate system
-  async moderateMessage(
+  // AI Moderation with custom prompt
+  async moderateMessageWithPrompt(
     message,
     username,
     conversationHistory = [],
-    debateConfig = null
+    customPrompt
   ) {
-    // Use custom system prompt if provided, otherwise use default
-    const systemPrompt = debateConfig && debateConfig.customSystemPrompt;
-    console.log("🤖 System prompt:", systemPrompt);
+    console.log("🤖 Using custom prompt:", customPrompt);
 
     // Build conversation context
     let conversationContext = "";
@@ -76,36 +74,36 @@ class AIService {
         .join("\n")}\n`;
     }
 
-    const userPrompt = `Debes analizar el siguiente mensaje según las reglas y comportamiento definidos a continuación.
+    const userPrompt = `You must analyze the following message according to the rules and behavior defined below.
 
-REGLAS Y COMPORTAMIENTO:
-${systemPrompt || "No hay reglas personalizadas definidas"}
+RULES AND BEHAVIOR:
+${customPrompt}
 
-MENSAJE A ANALIZAR:
-Usuario: "${username}"
-Mensaje: "${message}"${conversationContext}
+MESSAGE TO ANALYZE:
+User: "${username}"
+Message: "${message}"${conversationContext}
 
-INSTRUCCIONES DE RESPUESTA:
-1. Evalúa si debes intervenir según las reglas establecidas arriba
-2. Si las reglas indican que debes responder/intervenir/saludar/actuar de alguna manera, establece shouldRespond: true
-3. Si no hay necesidad de intervención según las reglas, establece shouldRespond: false
+RESPONSE INSTRUCTIONS:
+1. Evaluate if you should intervene according to the rules established above
+2. If the rules indicate that you should respond/intervene/greet/act in some way, set shouldRespond: true
+3. If there is no need for intervention according to the rules, set shouldRespond: false
 
-CRÍTICO: Responde ÚNICAMENTE con JSON válido. NO uses markdown, NO incluyas texto adicional, NO uses \`\`\`json\`\`\`. Solo el JSON puro.
+CRITICAL: Respond ONLY with valid JSON. DO NOT use markdown, DO NOT include additional text, DO NOT use \`\`\`json\`\`\`. Only pure JSON.
 
-Formato JSON requerido:
+Required JSON format:
 {
   "shouldRespond": true/false,
-  "response": "tu mensaje/respuesta/saludo/intervención si shouldRespond es true, vacío si es false",
-  "reason": "breve razón de tu decisión"
+  "response": "your message/response/greeting/intervention if shouldRespond is true, empty if false",
+  "reason": "brief reason for your decision"
 }`;
 
     let response;
     try {
-      response = await this.callAI(systemPrompt, userPrompt);
-      console.log("🤖 Raw AI response:", response);
+      response = await this.callAI(customPrompt, userPrompt);
+      console.log("🤖 Raw AI response for custom prompt:", response);
 
       if (!response || response.trim() === "") {
-        console.log("⚠️ Empty AI response received");
+        console.log("⚠️ Empty AI response received for custom prompt");
         return { shouldRespond: false };
       }
 
@@ -128,7 +126,7 @@ Formato JSON requerido:
         reason: parsed.reason,
       };
     } catch (error) {
-      console.error("AI Moderation error:", error);
+      console.error("AI Moderation error for custom prompt:", error);
       console.error("Failed to parse response:", response);
       return { shouldRespond: false };
     }
@@ -144,11 +142,11 @@ const aiService = new AIService();
 async function analyzeMessage(message, username, roomId) {
   if (!aiService.isAvailable()) {
     console.log("AI Moderation disabled: No OpenAI API key provided");
-    return { shouldRespond: false };
+    return { shouldRespond: false, results: [] };
   }
 
   try {
-    console.log("🤖 AI analyzing message with context...");
+    console.log("🤖 AI analyzing message with multiple prompts...");
 
     // Get conversation history for context
     const conversationHistory = messageStore.get(roomId) || [];
@@ -156,18 +154,40 @@ async function analyzeMessage(message, username, roomId) {
     // Get debate config for context
     const debateConfig = roomConfigs.get(roomId);
 
-    const result = await aiService.moderateMessage(
-      message,
-      username,
-      conversationHistory,
-      debateConfig
-    );
+    // If no custom prompts, no analysis needed
+    if (!debateConfig?.prompts || debateConfig.prompts.length === 0) {
+      console.log(`✅ No prompts configured, skipping AI analysis`);
+      return { shouldRespond: false, results: [] };
+    }
 
-    console.log(`✅ AI analysis complete`);
-    return result;
+    // Analyze with multiple prompts
+    const results = [];
+    for (let i = 0; i < debateConfig.prompts.length; i++) {
+      const prompt = debateConfig.prompts[i];
+      console.log(`🤖 Analyzing with prompt ${i + 1}:`, prompt);
+
+      const result = await aiService.moderateMessageWithPrompt(
+        message,
+        username,
+        conversationHistory,
+        prompt
+      );
+
+      results.push({
+        promptIndex: i,
+        prompt: prompt,
+        ...result,
+      });
+    }
+
+    // Determine if we should respond based on any of the prompts
+    const shouldRespond = results.some((result) => result.shouldRespond);
+
+    console.log(`✅ AI analysis complete (${results.length} prompts)`);
+    return { shouldRespond, results };
   } catch (error) {
     console.error("AI Moderation error:", error);
-    return { shouldRespond: false };
+    return { shouldRespond: false, results: [] };
   }
 }
 
@@ -437,28 +457,39 @@ app.prepare().then(() => {
           data.roomId
         );
 
-        if (aiResult.shouldRespond && aiResult.response) {
-          // Send AI intervention message
-          const aiMessage = {
-            id: `ai-${Date.now()}`,
-            message: aiResult.response,
-            username: "Moderador",
-            timestamp: new Date().toISOString(),
-            socketId: "ai-moderator",
-            isAIModerator: true,
-            reason: aiResult.reason,
-          };
+        if (
+          aiResult.shouldRespond &&
+          aiResult.results &&
+          aiResult.results.length > 0
+        ) {
+          // Send responses for each prompt that should respond
+          for (const result of aiResult.results) {
+            if (result.shouldRespond && result.response) {
+              const aiMessage = {
+                id: `ai-${Date.now()}-${result.promptIndex}`,
+                message: `[Prompt ${result.promptIndex + 1}] ${
+                  result.response
+                }`,
+                username: "Moderador",
+                timestamp: new Date().toISOString(),
+                socketId: "ai-moderator",
+                isAIModerator: true,
+                reason: result.reason,
+                promptIndex: result.promptIndex,
+              };
 
-          // Store AI message
-          messages.push(aiMessage);
-          messageStore.set(data.roomId, messages);
+              // Store AI message
+              messages.push(aiMessage);
+              messageStore.set(data.roomId, messages);
 
-          // Broadcast AI message to room
-          io.to(data.roomId).emit("receive-message", aiMessage);
-
-          console.log(
-            `AI Moderator responded to message from ${data.username}: ${aiResult.reason}`
-          );
+              // Broadcast AI message to room
+              io.to(data.roomId).emit("receive-message", aiMessage);
+              console.log(
+                `🤖 AI intervention sent for prompt ${result.promptIndex + 1}:`,
+                result.response
+              );
+            }
+          }
         }
       }
     });

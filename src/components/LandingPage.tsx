@@ -13,23 +13,29 @@ interface LandingPageProps {
 }
 
 interface DebateConfig {
-  customSystemPrompt: string;
   toleranceLevel: string;
+  prompts: string[];
 }
 
 export default function LandingPage({ onJoinRoom }: LandingPageProps) {
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState("");
   const [activeTab, setActiveTab] = useState<"create" | "join">("create");
-  const [customSystemPrompt, setCustomSystemPrompt] = useState("");
   const [toleranceLevel, setToleranceLevel] = useState("1");
+  const [prompts, setPrompts] = useState<string[]>(["", "", "", "", "", ""]);
+
+  const handlePromptChange = (index: number, value: string) => {
+    const newPrompts = [...prompts];
+    newPrompts[index] = value;
+    setPrompts(newPrompts);
+  };
 
   const handleCreateRoom = () => {
-    if (username.trim() && customSystemPrompt.trim()) {
+    if (username.trim()) {
       const newRoomId = uuidv4();
       const debateConfig: DebateConfig = {
-        customSystemPrompt: customSystemPrompt.trim(),
         toleranceLevel: toleranceLevel,
+        prompts: prompts.filter((prompt) => prompt.trim() !== ""),
       };
       onJoinRoom(newRoomId, username, debateConfig, true);
     }
@@ -111,61 +117,44 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
           {/* Tab Content */}
           {activeTab === "create" ? (
             <>
-              {/* Custom System Prompt - REQUIRED */}
+              {/* Multiple AI Prompts */}
               <div>
-                <label
-                  htmlFor="customSystemPrompt"
-                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
-                >
-                  Custom System Prompt <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">
+                  AI Analysis Prompts (Optional)
                 </label>
-                <textarea
-                  id="customSystemPrompt"
-                  value={customSystemPrompt}
-                  onChange={(e) => setCustomSystemPrompt(e.target.value)}
-                  placeholder="Enter your custom system prompt (required)..."
-                  rows={6}
-                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-none text-sm"
-                  required
-                />
-                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                  Define the AI behavior and rules for your debate session.
+                <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">
+                  Add up to 6 custom prompts for AI analysis. Each message will
+                  be evaluated against all provided prompts.
                 </p>
-              </div>
 
-              {/* Tolerance Level */}
-              <div>
-                <label
-                  htmlFor="toleranceLevel"
-                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
-                >
-                  Tolerance Level
-                </label>
-                <select
-                  id="toleranceLevel"
-                  value={toleranceLevel}
-                  onChange={(e) => setToleranceLevel(e.target.value)}
-                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
-                >
-                  <option value="1">
-                    Nivel 1 (Tranquilo) - Se penalizan adjetivos fuertes y
-                    comentarios despectivos
-                  </option>
-                  <option value="2">
-                    Nivel 2 (Intermedio) - Se permiten adjetivos críticos, pero
-                    no ofensivas directas
-                  </option>
-                  <option value="3">
-                    Nivel 3 (Intenso) - Se aceptan expresiones más duras, nunca
-                    insultos directos
-                  </option>
-                </select>
+                {prompts.map((prompt, index) => (
+                  <div key={index} className="mb-4">
+                    <label
+                      htmlFor={`prompt-${index}`}
+                      className="block text-sm font-medium text-gray-600 dark:text-slate-400 mb-2"
+                    >
+                      Prompt {index + 1}
+                    </label>
+                    <textarea
+                      id={`prompt-${index}`}
+                      value={prompt}
+                      onChange={(e) =>
+                        handlePromptChange(index, e.target.value)
+                      }
+                      placeholder={`Enter prompt ${
+                        index + 1
+                      } for AI analysis...`}
+                      rows={6}
+                      className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm"
+                    />
+                  </div>
+                ))}
               </div>
 
               {/* Create Room Button */}
               <button
                 onClick={handleCreateRoom}
-                disabled={!username.trim() || !customSystemPrompt.trim()}
+                disabled={!username.trim()}
                 className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-slate-600 text-white py-3 rounded-lg font-medium transition-colors disabled:cursor-not-allowed"
               >
                 Create New Room
