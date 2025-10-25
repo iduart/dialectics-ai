@@ -25,10 +25,6 @@ export default function Chat({
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [socketId, setSocketId] = useState<string>("");
-  const [timeLeft, setTimeLeft] = useState<number>(0);
-  const [turnTimeLeft, setTurnTimeLeft] = useState<number>(60);
-  const [motionTimeLeft, setMotionTimeLeft] = useState<number>(0);
-  const [isWaitingForMotion, setIsWaitingForMotion] = useState(false);
   const [isDebateEnded, setIsDebateEnded] = useState(false);
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -47,90 +43,91 @@ export default function Chat({
     onUserJoined,
     onMessageHistory,
     onRoomUpdated,
-    onRoomFull,
     onUsernameTaken,
-    onNotYourTurn,
     onUserLeft,
     onRoomConfig,
-    startDebate,
-    onDebateStarted,
-    onDebateNotStarted,
-    onStartDebateFailed,
     onWaitingForCreator,
-    onTurnTimeUpdate,
-    onMotionTimeUpdate,
-    onMotionStateUpdate,
-    requestMotion,
   } = useSocket();
 
   useEffect(() => {
-    if (socket) {
-      setSocketId(socket.id || "");
+    console.log("🔌 Socket effect triggered:", {
+      socket: !!socket,
+      socketId: socket?.id,
+      currentSocketId: socketId,
+    });
+    if (socket && socket.id) {
+      console.log("🆔 Setting socket ID:", socket.id);
+      setSocketId(socket.id);
+    } else if (socket && !socket.id) {
+      console.log("⚠️ Socket exists but no ID yet, waiting...");
+      // Wait for socket to get an ID
+      const checkId = () => {
+        if (socket.id) {
+          console.log("🆔 Socket ID now available:", socket.id);
+          setSocketId(socket.id);
+        } else {
+          setTimeout(checkId, 100);
+        }
+      };
+      checkId();
+    } else {
+      console.log("🔴 No socket available");
+      setSocketId("");
     }
   }, [socket]);
 
-  // Initialize timer when debate starts
   useEffect(() => {
-    if (!debateConfig || !roomInfo?.debateStarted) return;
-
-    const durationMinutes = parseInt(debateConfig.duration);
-    const durationMs = durationMinutes * 60 * 1000;
-    setTimeLeft(durationMs);
-
-    const timer = setInterval(() => {
-      setTimeLeft((prevTime) => {
-        if (prevTime <= 1000) {
-          setIsDebateEnded(true);
-          return 0;
-        }
-        return prevTime - 1000;
+    if (socket && roomId && username) {
+      console.log("🚪 Joining room:", {
+        roomId,
+        username,
+        socketId: socket.id,
       });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [debateConfig, roomInfo?.debateStarted]);
-
-  useEffect(() => {
-    if (socket && roomId && !roomInfo) {
-      // Only join once when we have socket and roomId but no room info yet
+      // Join room when we have socket, roomId, and username
+      // Only join once, don't rejoin when debateConfig changes
       joinRoom(roomId, username, debateConfig);
     }
-  }, [socket, roomId, username, joinRoom, roomInfo]);
+  }, [socket, roomId, username, joinRoom]);
 
   useEffect(() => {
     const unsubscribeReceive = onReceiveMessage((message: MessageType) => {
+      console.log("🟣 Received message:", {
+        message: message.message,
+        username: message.username,
+        socketId: message.socketId,
+        currentSocketId: socketId,
+        isOwn: message.socketId === socketId,
+      });
       setMessages((prev) => [...prev, message]);
     });
 
     const unsubscribeJoin = onUserJoined((socketId: string) => {
-      console.log(`User with socket ${socketId} joined the room`);
+      console.log("👥 User joined:", {
+        joinedSocketId: socketId,
+        currentSocketId: socketId,
+        isOwnJoin: socketId === socketId,
+      });
     });
 
     const unsubscribeHistory = onMessageHistory((history: MessageType[]) => {
+      console.log("📚 Message history received:", {
+        historyLength: history.length,
+        messages: history.map((m) => ({
+          id: m.id,
+          username: m.username,
+          message: m.message,
+        })),
+      });
       setMessages(history);
     });
 
     const unsubscribeRoomUpdated = onRoomUpdated((roomInfo: RoomInfo) => {
       console.log("🏠 Room updated:", JSON.stringify(roomInfo, null, 2));
       setRoomInfo(roomInfo);
-      // Reset turn timer when room updates (new turn)
-      if (roomInfo.debateStarted) {
-        setTurnTimeLeft(60);
-      }
-    });
-
-    const unsubscribeRoomFull = onRoomFull((data: { message: string }) => {
-      setErrorMessage(data.message);
     });
 
     const unsubscribeUsernameTaken = onUsernameTaken(
       (data: { message: string }) => {
-        setErrorMessage(data.message);
-      }
-    );
-
-    const unsubscribeNotYourTurn = onNotYourTurn(
-      (data: { message: string; currentSpeaker: string }) => {
         setErrorMessage(data.message);
       }
     );
@@ -143,57 +140,9 @@ export default function Chat({
       setDebateConfig(config);
     });
 
-    const unsubscribeDebateStarted = onDebateStarted((roomInfo: RoomInfo) => {
-      setRoomInfo(roomInfo);
-    });
-
-    const unsubscribeDebateNotStarted = onDebateNotStarted(
-      (data: { message: string }) => {
-        setErrorMessage(data.message);
-      }
-    );
-
-    const unsubscribeStartDebateFailed = onStartDebateFailed(
-      (data: { message: string }) => {
-        setErrorMessage(data.message);
-      }
-    );
-
     const unsubscribeWaitingForCreator = onWaitingForCreator(
       (data: { message: string }) => {
         console.log("Waiting for creator:", data.message);
-      }
-    );
-
-    const unsubscribeTurnTimeUpdate = onTurnTimeUpdate(
-      (data: { timeLeft: number; roomId: string }) => {
-        console.log("⏰ Received turn time update:", data);
-        if (data.roomId === roomId) {
-          setTurnTimeLeft(data.timeLeft);
-          console.log("⏰ Updated turn time to:", data.timeLeft);
-        }
-      }
-    );
-
-    const unsubscribeMotionTimeUpdate = onMotionTimeUpdate(
-      (data: { timeLeft: number; roomId: string }) => {
-        console.log("⏰ Received motion time update:", data);
-        if (data.roomId === roomId) {
-          setMotionTimeLeft(data.timeLeft);
-          console.log("⏰ Updated motion time to:", data.timeLeft);
-        }
-      }
-    );
-
-    const unsubscribeMotionStateUpdate = onMotionStateUpdate(
-      (data: { waitingForMotion: boolean; roomId: string }) => {
-        console.log("📋 Received motion state update:", data);
-        console.log("📋 Current roomId:", roomId);
-        if (data.roomId === roomId) {
-          setIsWaitingForMotion(data.waitingForMotion);
-          console.log("📋 Updated motion state to:", data.waitingForMotion);
-          console.log("📋 isMyTurn:", isMyTurn);
-        }
       }
     );
 
@@ -202,36 +151,20 @@ export default function Chat({
       unsubscribeJoin();
       unsubscribeHistory();
       unsubscribeRoomUpdated();
-      unsubscribeRoomFull();
       unsubscribeUsernameTaken();
-      unsubscribeNotYourTurn();
       unsubscribeUserLeft();
       unsubscribeRoomConfig();
-      unsubscribeDebateStarted();
-      unsubscribeDebateNotStarted();
-      unsubscribeStartDebateFailed();
       unsubscribeWaitingForCreator();
-      unsubscribeTurnTimeUpdate();
-      unsubscribeMotionTimeUpdate();
-      unsubscribeMotionStateUpdate();
     };
   }, [
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,
     onRoomUpdated,
-    onRoomFull,
     onUsernameTaken,
-    onNotYourTurn,
     onUserLeft,
     onRoomConfig,
-    onDebateStarted,
-    onDebateNotStarted,
-    onStartDebateFailed,
     onWaitingForCreator,
-    onTurnTimeUpdate,
-    onMotionTimeUpdate,
-    onMotionStateUpdate,
   ]);
 
   useEffect(() => {
@@ -244,31 +177,19 @@ export default function Chat({
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("🔵 Sending message:", {
+      message: newMessage.trim(),
+      connected,
+      socketId,
+      roomId,
+      username,
+    });
     if (newMessage.trim() && connected && !isDebateEnded) {
       sendMessage(roomId, newMessage.trim(), username);
       setNewMessage("");
       setErrorMessage(""); // Clear any previous error messages
     }
   };
-
-  const handleStartDebate = () => {
-    startDebate(roomId, username);
-    setErrorMessage(""); // Clear any previous error messages
-  };
-
-  const handleRequestMotion = () => {
-    if (socket && isWaitingForMotion && isMyTurn) {
-      // Request motion but don't send message to chat
-      requestMotion({
-        roomId,
-        username,
-      });
-      setErrorMessage("");
-    }
-  };
-
-  // Check if it's the current user's turn
-  const isMyTurn = roomInfo && roomInfo.currentSpeaker === username;
 
   const connectionStatus = connected ? "🟢 Connected" : "🔴 Disconnected";
 
@@ -290,14 +211,6 @@ export default function Chat({
       </div>
     );
   }
-
-  // Format time left
-  const formatTime = (milliseconds: number) => {
-    const totalSeconds = Math.floor(milliseconds / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  };
 
   const getToleranceLevelText = (level: string) => {
     switch (level) {
@@ -369,19 +282,28 @@ Formato JSON requerido:
               <span>
                 Nivel: {getToleranceLevelText(debateConfig.toleranceLevel)}
               </span>
-              <span>•</span>
-              <span
-                className={`font-mono ${
-                  timeLeft < 60000 ? "text-red-500 font-bold" : ""
-                }`}
-              >
-                {formatTime(timeLeft)}
-              </span>
+              {roomInfo && (
+                <>
+                  <span>•</span>
+                  <span>
+                    {roomInfo.participants.length} participant
+                    {roomInfo.participants.length !== 1 ? "s" : ""}
+                  </span>
+                </>
+              )}
             </div>
             <div className="mt-2">
               <p className="text-sm text-gray-700 dark:text-slate-300">
                 <strong>Tema:</strong> {debateConfig.description}
               </p>
+              {roomInfo && roomInfo.participants.length > 0 && (
+                <div className="mt-1">
+                  <p className="text-xs text-gray-600 dark:text-slate-400">
+                    <strong>Participants:</strong>{" "}
+                    {roomInfo.participants.map((p) => p.username).join(", ")}
+                  </p>
+                </div>
+              )}
             </div>
             <div className="flex items-center mt-1 space-x-4">
               <div className="flex items-center">
@@ -397,98 +319,6 @@ Formato JSON requerido:
                 📝 View AI Prompt
               </button>
             </div>
-
-            {/* Prominent Turn Indicator */}
-            {roomInfo && roomInfo.participants.length === 2 && (
-              <div
-                className={`mt-4 p-4 rounded-lg border-2 ${
-                  roomInfo.debateStarted
-                    ? isMyTurn
-                      ? "bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-600"
-                      : "bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-600"
-                    : "bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600"
-                }`}
-              >
-                {!roomInfo.debateStarted ? (
-                  <div className="text-center">
-                    <div className="flex items-center justify-center mb-2">
-                      <div className="w-4 h-4 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
-                      <span className="text-lg font-semibold text-blue-700 dark:text-blue-300">
-                        Ready to Start Debate
-                      </span>
-                    </div>
-                    <p className="text-sm text-blue-600 dark:text-blue-400 mb-3">
-                      Both participants are in the room. Click to start the
-                      debate!
-                    </p>
-                    <button
-                      onClick={handleStartDebate}
-                      className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-                    >
-                      Start Debate
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <div className="flex items-center justify-center mb-2">
-                      <div
-                        className={`w-4 h-4 rounded-full mr-2 ${
-                          isMyTurn
-                            ? "bg-green-500 animate-pulse"
-                            : "bg-orange-500"
-                        }`}
-                      ></div>
-                      <span
-                        className={`text-lg font-bold ${
-                          isMyTurn
-                            ? "text-green-700 dark:text-green-300"
-                            : "text-orange-700 dark:text-orange-300"
-                        }`}
-                      >
-                        {isMyTurn
-                          ? "🎯 YOUR TURN"
-                          : `👤 ${roomInfo.currentSpeaker}'s Turn`}
-                      </span>
-                    </div>
-                    {/* Turn Timer */}
-                    <div className="mb-2">
-                      <div
-                        className={`text-2xl font-mono font-bold ${
-                          isMyTurn
-                            ? turnTimeLeft <= 10
-                              ? "text-red-600 dark:text-red-400"
-                              : "text-green-600 dark:text-green-400"
-                            : "text-gray-500 dark:text-gray-400"
-                        }`}
-                      >
-                        {turnTimeLeft}s
-                      </div>
-                      <div
-                        className={`text-xs ${
-                          isMyTurn
-                            ? "text-green-600 dark:text-green-400"
-                            : "text-gray-500 dark:text-gray-400"
-                        }`}
-                      >
-                        Time remaining
-                      </div>
-                    </div>
-
-                    <p
-                      className={`text-sm ${
-                        isMyTurn
-                          ? "text-green-600 dark:text-green-400"
-                          : "text-orange-600 dark:text-orange-400"
-                      }`}
-                    >
-                      {isMyTurn
-                        ? "You can now send your message"
-                        : `Waiting for ${roomInfo.currentSpeaker} to respond...`}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-600 dark:text-slate-400">
@@ -569,65 +399,17 @@ Formato JSON requerido:
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder={
-              isDebateEnded
-                ? "Debate has ended"
-                : !roomInfo?.debateStarted
-                ? "Debate hasn't started yet"
-                : !isMyTurn && roomInfo?.participants.length === 2
-                ? `Wait for ${roomInfo.currentSpeaker}'s turn...`
-                : isWaitingForMotion && isMyTurn
-                ? "Type your motion: mocion:[your clarification]"
-                : "Type your message..."
+              isDebateEnded ? "Debate has ended" : "Type your message..."
             }
             className="flex-1 border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
-            disabled={
-              !connected ||
-              isDebateEnded ||
-              !roomInfo?.debateStarted ||
-              (!isMyTurn && roomInfo?.participants.length === 2)
-            }
+            disabled={!connected || isDebateEnded}
           />
           <button
             type="submit"
-            disabled={
-              !connected ||
-              !newMessage.trim() ||
-              isDebateEnded ||
-              !roomInfo?.debateStarted ||
-              (!isMyTurn && roomInfo?.participants.length === 2)
-            }
+            disabled={!connected || !newMessage.trim() || isDebateEnded}
             className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-6 py-2 rounded-lg font-medium transition-colors"
           >
             Send
-          </button>
-          {/* Motion Button - Always visible but disabled when not waiting for motion */}
-          {(() => {
-            console.log("🔍 Motion button conditions:", {
-              isWaitingForMotion,
-              isMyTurn,
-              motionTimeLeft,
-              shouldShow: isWaitingForMotion && isMyTurn,
-            });
-            return null;
-          })()}
-
-          <button
-            type="button"
-            onClick={handleRequestMotion}
-            className={`px-6 py-2 rounded-lg font-medium transition-colors flex items-center space-x-2 ${
-              isWaitingForMotion && isMyTurn
-                ? "bg-orange-500 hover:bg-orange-600 text-white"
-                : "bg-gray-400 text-gray-600"
-            }`}
-            disabled={!isWaitingForMotion || !isMyTurn}
-          >
-            <span>📋</span>
-            <span>Moción</span>
-            {isWaitingForMotion && motionTimeLeft > 0 && (
-              <span className="text-xs bg-orange-600 px-2 py-1 rounded">
-                {motionTimeLeft}s
-              </span>
-            )}
           </button>
         </form>
         {!connected && (
@@ -637,11 +419,6 @@ Formato JSON requerido:
         )}
         {errorMessage && (
           <p className="text-sm text-red-500 mt-2">{errorMessage}</p>
-        )}
-        {roomInfo && roomInfo.participants.length === 1 && (
-          <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-2">
-            Waiting for second participant to join the debate...
-          </p>
         )}
       </div>
 

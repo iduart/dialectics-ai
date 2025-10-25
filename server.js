@@ -16,11 +16,8 @@ const port = process.env.PORT || 3000;
 const messageStore = new Map();
 
 // Room management for 2-person debates
-const roomParticipants = new Map(); // roomId -> { participants: [], currentTurn: 0, debateStarted: false }
+const roomParticipants = new Map(); // roomId -> { participants: [] }
 const roomConfigs = new Map(); // roomId -> { description, toleranceLevel, duration }
-const turnTimers = new Map(); // roomId -> { timer: Timeout, timeLeft: number }
-const motionTimers = new Map(); // roomId -> { timer: Timeout, timeLeft: number }
-const motionStates = new Map(); // roomId -> { waitingForMotion: boolean, lastIntervention: any }
 
 // Initialize OpenAI client (primary AI)
 const openai = process.env.OPENAI_API_KEY
@@ -192,175 +189,12 @@ app.prepare().then(() => {
     allowEIO3: true,
   });
 
-  // Turn timer management functions (defined here where io is available)
-  function startTurnTimer(roomId) {
-    console.log(`⏰ Starting turn timer for room ${roomId}`);
-
-    // Clear existing timer if any
-    clearTurnTimer(roomId);
-
-    // Start new timer (60 seconds)
-    const timer = setTimeout(() => {
-      console.log(`⏰ Turn timer expired for room ${roomId}`);
-      switchToNextTurn(roomId);
-    }, 60000); // 1 minute = 60,000ms
-
-    // Start countdown updates every second
-    const countdownInterval = setInterval(() => {
-      const timerInfo = turnTimers.get(roomId);
-      if (timerInfo) {
-        timerInfo.timeLeft--;
-
-        // Emit countdown update to room
-        io.to(roomId).emit("turn-time-update", {
-          timeLeft: timerInfo.timeLeft,
-          roomId: roomId,
-        });
-
-        if (timerInfo.timeLeft <= 0) {
-          clearInterval(countdownInterval);
-        }
-      } else {
-        clearInterval(countdownInterval);
-      }
-    }, 1000);
-
-    // Store timer info (including the countdown interval)
-    turnTimers.set(roomId, {
-      timer: timer,
-      countdownInterval: countdownInterval,
-      timeLeft: 60,
-      startTime: Date.now(),
-    });
-  }
-
-  function clearTurnTimer(roomId) {
-    const timerInfo = turnTimers.get(roomId);
-    if (timerInfo) {
-      clearTimeout(timerInfo.timer);
-      if (timerInfo.countdownInterval) {
-        clearInterval(timerInfo.countdownInterval);
-      }
-      turnTimers.delete(roomId);
-      console.log(`⏰ Cleared turn timer for room ${roomId}`);
-    }
-  }
-
-  function clearMotionTimer(roomId) {
-    const timerInfo = motionTimers.get(roomId);
-    if (timerInfo) {
-      clearTimeout(timerInfo.timer);
-      if (timerInfo.countdownInterval) {
-        clearInterval(timerInfo.countdownInterval);
-      }
-      motionTimers.delete(roomId);
-      console.log(`⏰ Cleared motion timer for room ${roomId}`);
-    }
-  }
-
-  function startMotionTimer(roomId) {
-    console.log(`⏰ Starting motion timer for room ${roomId}`);
-
-    // Clear existing motion timer if any
-    clearMotionTimer(roomId);
-
-    // Start new timer (15 seconds)
-    const timer = setTimeout(() => {
-      console.log(`⏰ Motion timer expired for room ${roomId}`);
-      handleMotionTimeout(roomId);
-    }, 15000); // 15 seconds
-
-    // Start countdown updates every second
-    const countdownInterval = setInterval(() => {
-      const timerInfo = motionTimers.get(roomId);
-      if (timerInfo) {
-        timerInfo.timeLeft--;
-
-        // Emit countdown update to room
-        io.to(roomId).emit("motion-time-update", {
-          timeLeft: timerInfo.timeLeft,
-          roomId: roomId,
-        });
-
-        if (timerInfo.timeLeft <= 0) {
-          clearInterval(countdownInterval);
-        }
-      } else {
-        clearInterval(countdownInterval);
-      }
-    }, 1000);
-
-    // Store timer info
-    motionTimers.set(roomId, {
-      timer: timer,
-      countdownInterval: countdownInterval,
-      timeLeft: 15,
-      startTime: Date.now(),
-    });
-  }
-
-  function handleMotionTimeout(roomId) {
-    console.log(
-      `⏰ Motion timeout for room ${roomId} - user accepted AI intervention, proceeding to next turn`
-    );
-
-    // Clear motion state
-    motionStates.delete(roomId);
-
-    // Notify clients that motion state is cleared
-    io.to(roomId).emit("motion-state-update", {
-      waitingForMotion: false,
-      roomId: roomId,
-    });
-
-    // Continue to next turn (user accepted AI intervention by not requesting motion)
-    switchToNextTurn(roomId);
-  }
-
-  function switchToNextTurn(roomId) {
-    console.log(`🔄 Switching to next turn in room ${roomId}`);
-
-    const roomData = roomParticipants.get(roomId);
-    if (!roomData || !roomData.debateStarted) {
-      console.log(
-        `⚠️ Cannot switch turn - room ${roomId} not found or debate not started`
-      );
-      return;
-    }
-
-    // Switch to next participant
-    roomData.currentTurn =
-      (roomData.currentTurn + 1) % roomData.participants.length;
-    roomData.currentSpeaker =
-      roomData.participants[roomData.currentTurn].username;
-
-    console.log(
-      `🔄 Turn switched to: ${roomData.currentSpeaker} in room ${roomId}`
-    );
-
-    // Emit turn update to room
-    io.to(roomId).emit("room-updated", {
-      participants: roomData.participants,
-      currentTurn: roomData.currentTurn,
-      currentSpeaker: roomData.currentSpeaker,
-      debateStarted: roomData.debateStarted,
-    });
-
-    // Start timer for new turn
-    startTurnTimer(roomId);
-
-    // Emit turn timeout message
-    io.to(roomId).emit("message", {
-      id: Date.now(),
-      username: "Moderador",
-      content: `⏰ Tiempo agotado. Continúa ${roomData.currentSpeaker}`,
-      timestamp: new Date().toISOString(),
-      isOwn: false,
-    });
-  }
-
   io.on("connection", (socket) => {
-    console.log("User connected:", socket.id);
+    console.log("\n=== NEW SOCKET CONNECTION ===");
+    console.log("🔌 New user connected:", {
+      socketId: socket.id,
+      timestamp: new Date().toISOString(),
+    });
 
     // Join a room
     socket.on("join-room", (data) => {
@@ -375,8 +209,6 @@ app.prepare().then(() => {
       // Check if room exists and has participants
       let roomData = roomParticipants.get(roomId) || {
         participants: [],
-        currentTurn: 0,
-        debateStarted: false,
       };
 
       console.log("Current room data:", JSON.stringify(roomData, null, 2));
@@ -386,15 +218,6 @@ app.prepare().then(() => {
         "All room configs:",
         JSON.stringify(Object.fromEntries(roomConfigs), null, 2)
       );
-
-      // Check if room is full (2 participants max)
-      if (roomData.participants.length >= 2) {
-        console.log("Room is full, rejecting join");
-        socket.emit("room-full", {
-          message: "Room is full. Only 2 participants allowed.",
-        });
-        return;
-      }
 
       // Check if this socket is already in the room
       if (roomData.participants.some((p) => p.socketId === socket.id)) {
@@ -426,8 +249,25 @@ app.prepare().then(() => {
       }
 
       socket.join(roomId);
-      console.log(`User ${username} (${socket.id}) joined room ${roomId}`);
-      console.log("Updated room data:", JSON.stringify(roomData, null, 2));
+      console.log(`✅ User ${username} (${socket.id}) joined room ${roomId}`);
+      console.log("🏠 Updated room data:", JSON.stringify(roomData, null, 2));
+      console.log("🔌 Socket joined room:", {
+        socketId: socket.id,
+        roomId: roomId,
+        username: username,
+      });
+
+      // Verify socket is actually in the room
+      io.in(roomId)
+        .fetchSockets()
+        .then((roomSockets) => {
+          console.log("🔍 Verification - Sockets in room after join:", {
+            roomId: roomId,
+            socketCount: roomSockets.length,
+            socketIds: roomSockets.map((s) => s.id),
+            newSocketInRoom: roomSockets.some((s) => s.id === socket.id),
+          });
+        });
       console.log(
         "Updated room configs:",
         JSON.stringify(Object.fromEntries(roomConfigs), null, 2)
@@ -445,16 +285,24 @@ app.prepare().then(() => {
       // Send room info to all participants
       const roomInfo = {
         participants: roomData.participants,
-        currentTurn: roomData.currentTurn,
-        currentSpeaker:
-          roomData.participants[roomData.currentTurn]?.username || null,
-        debateStarted: roomData.debateStarted,
       };
 
-      console.log(
-        "Sending room info to all participants:",
-        JSON.stringify(roomInfo, null, 2)
-      );
+      console.log("📤 Sending room info to all participants:", {
+        roomId: roomId,
+        participants: roomData.participants,
+        participantCount: roomData.participants.length,
+      });
+
+      // Log which sockets are in this room
+      io.in(roomId)
+        .fetchSockets()
+        .then((roomSockets) => {
+          console.log("🔌 Sockets currently in room:", {
+            roomId: roomId,
+            socketCount: roomSockets.length,
+            socketIds: roomSockets.map((s) => s.id),
+          });
+        });
 
       // Send debate config to the newly joined user if room already has config
       const existingConfig = roomConfigs.get(roomId);
@@ -475,7 +323,17 @@ app.prepare().then(() => {
         });
       }
 
+      console.log(
+        "📢 Broadcasting room-updated to all participants in room:",
+        roomId
+      );
       io.to(roomId).emit("room-updated", roomInfo);
+
+      console.log("👋 Notifying other participants about new user:", {
+        newUser: username,
+        socketId: socket.id,
+        roomId: roomId,
+      });
       socket
         .to(roomId)
         .emit("user-joined", { socketId: socket.id, username: username });
@@ -485,26 +343,23 @@ app.prepare().then(() => {
 
     // Send message to room
     socket.on("send-message", async (data) => {
+      console.log("\n=== MESSAGE RECEIVED ===");
+      console.log("🔵 Server received send-message event:", {
+        roomId: data.roomId,
+        message: data.message,
+        username: data.username,
+        socketId: socket.id,
+        timestamp: new Date().toISOString(),
+      });
+
       const roomData = roomParticipants.get(data.roomId);
-
-      // Check if debate has started and if it's the user's turn
-      if (roomData && roomData.participants.length === 2) {
-        if (!roomData.debateStarted) {
-          socket.emit("debate-not-started", {
-            message: "The debate hasn't started yet.",
-          });
-          return;
-        }
-
-        const currentSpeaker = roomData.participants[roomData.currentTurn];
-        if (currentSpeaker.socketId !== socket.id) {
-          socket.emit("not-your-turn", {
-            message: "It's not your turn to speak.",
-            currentSpeaker: currentSpeaker.username,
-          });
-          return;
-        }
-      }
+      console.log("🏠 Room data for message processing:", {
+        roomExists: !!roomData,
+        participants: roomData?.participants?.length || 0,
+        participantUsernames:
+          roomData?.participants?.map((p) => p.username) || [],
+        allParticipants: roomData?.participants || [],
+      });
 
       const messageData = {
         id: Date.now().toString(),
@@ -515,9 +370,18 @@ app.prepare().then(() => {
         isAIModerator: false,
       };
 
+      console.log("📝 Created message data:", {
+        id: messageData.id,
+        message: messageData.message,
+        username: messageData.username,
+        socketId: messageData.socketId,
+        timestamp: messageData.timestamp,
+      });
+
       // Store message
       if (!messageStore.has(data.roomId)) {
         messageStore.set(data.roomId, []);
+        console.log("🆕 Created new message store for room:", data.roomId);
       }
       const messages = messageStore.get(data.roomId);
       messages.push(messageData);
@@ -528,15 +392,44 @@ app.prepare().then(() => {
       }
       messageStore.set(data.roomId, messages);
 
-      // Broadcast original message to room FIRST
-      io.to(data.roomId).emit("receive-message", messageData);
+      console.log(
+        "💾 Stored message. Total messages in room:",
+        messages.length
+      );
 
-      // Check for AI intervention before switching turns
-      if (
-        roomData &&
-        roomData.participants.length === 2 &&
-        roomData.debateStarted
-      ) {
+      // Check which sockets will receive this message BEFORE broadcasting
+      console.log("🔍 Checking which sockets will receive this message...");
+      io.in(data.roomId)
+        .fetchSockets()
+        .then((roomSockets) => {
+          console.log("🎯 Sockets that will receive this message:", {
+            roomId: data.roomId,
+            socketCount: roomSockets.length,
+            socketIds: roomSockets.map((s) => s.id),
+            senderSocketId: socket.id,
+            socketDetails: roomSockets.map((s) => ({
+              id: s.id,
+              connected: s.connected,
+              rooms: Array.from(s.rooms),
+            })),
+          });
+        });
+
+      // Broadcast original message to room
+      console.log("📡 Broadcasting message to room:", {
+        roomId: data.roomId,
+        messageId: messageData.id,
+        message: messageData.message,
+        username: messageData.username,
+        senderSocketId: socket.id,
+      });
+
+      io.to(data.roomId).emit("receive-message", messageData);
+      console.log("✅ Message broadcasted successfully to room:", data.roomId);
+      console.log("=== END MESSAGE BROADCAST ===\n");
+
+      // Check for AI intervention
+      if (roomData) {
         // Analyze message with AI
         const aiResult = await analyzeMessage(
           data.message,
@@ -544,226 +437,44 @@ app.prepare().then(() => {
           data.roomId
         );
 
-        if (aiResult.shouldRespond) {
-          // AI intervened - DO NOT switch turns, keep current speaker and start motion timer
-          console.log(
-            `🤖 AI intervened for ${data.username}, keeping turn and starting motion timer`
-          );
-
-          // Keep the current turn (don't switch to next participant)
-          // The current speaker stays the same and can request a motion
-
-          // IMPORTANT: Update the room data to ensure the current speaker is correctly set
-          roomData.currentSpeaker = data.username;
-          roomParticipants.set(data.roomId, roomData);
-
-          // Set motion state
-          motionStates.set(data.roomId, {
-            waitingForMotion: true,
-            lastIntervention: aiResult,
-            currentSpeaker: data.username,
-          });
-
-          console.log(
-            "📋 Motion state set for:",
-            data.username,
-            "in room:",
-            data.roomId
-          );
-
-          // Start motion timer (15 seconds)
-          startMotionTimer(data.roomId);
-
-          // Notify clients about motion state
-          console.log("📋 Emitting motion-state-update:", {
-            waitingForMotion: true,
-            roomId: data.roomId,
-          });
-          io.to(data.roomId).emit("motion-state-update", {
-            waitingForMotion: true,
-            roomId: data.roomId,
-          });
-
-          // Also emit room-updated to ensure the current speaker is correctly set on client
-          const roomInfo = {
-            participants: roomData.participants,
-            currentTurn: roomData.currentTurn,
-            currentSpeaker: roomData.currentSpeaker,
-            debateStarted: roomData.debateStarted,
-          };
-          console.log(
-            "📋 Emitting room-updated to maintain turn:",
-            JSON.stringify(roomInfo, null, 2)
-          );
-          io.to(data.roomId).emit("room-updated", roomInfo);
-
+        if (aiResult.shouldRespond && aiResult.response) {
           // Send AI intervention message
-          if (aiResult.response) {
-            const aiMessage = {
-              id: `ai-${Date.now()}`,
-              message: aiResult.response,
-              username: "Moderador",
-              timestamp: new Date().toISOString(),
-              socketId: "ai-moderator",
-              isAIModerator: true,
-              reason: aiResult.reason,
-            };
-
-            // Store AI message
-            messages.push(aiMessage);
-            messageStore.set(data.roomId, messages);
-
-            // Broadcast AI message to room
-            io.to(data.roomId).emit("receive-message", aiMessage);
-
-            console.log(
-              `AI Moderator responded to message from ${data.username}: ${aiResult.reason}`
-            );
-          }
-
-          // IMPORTANT: Do NOT switch turns here - keep the current speaker
-          // The turn will only switch after motion timeout or motion request
-        } else {
-          // No AI intervention - proceed with normal turn switch
-          console.log(
-            `🤖 No AI intervention for ${data.username}, switching turns`
-          );
-
-          // Clear current turn timer
-          clearTurnTimer(data.roomId);
-
-          // Switch to next participant
-          roomData.currentTurn = (roomData.currentTurn + 1) % 2;
-          roomData.currentSpeaker =
-            roomData.participants[roomData.currentTurn].username;
-          roomParticipants.set(data.roomId, roomData);
-
-          // Start timer for new turn
-          startTurnTimer(data.roomId);
-
-          // Notify all participants about turn change
-          const roomInfo = {
-            participants: roomData.participants,
-            currentTurn: roomData.currentTurn,
-            currentSpeaker: roomData.currentSpeaker,
-            debateStarted: roomData.debateStarted,
+          const aiMessage = {
+            id: `ai-${Date.now()}`,
+            message: aiResult.response,
+            username: "Moderador",
+            timestamp: new Date().toISOString(),
+            socketId: "ai-moderator",
+            isAIModerator: true,
+            reason: aiResult.reason,
           };
-          io.to(data.roomId).emit("room-updated", roomInfo);
+
+          // Store AI message
+          messages.push(aiMessage);
+          messageStore.set(data.roomId, messages);
+
+          // Broadcast AI message to room
+          io.to(data.roomId).emit("receive-message", aiMessage);
+
+          console.log(
+            `AI Moderator responded to message from ${data.username}: ${aiResult.reason}`
+          );
         }
       }
-    });
-
-    // Start debate
-    socket.on("start-debate", (data) => {
-      console.log("\n=== START DEBATE EVENT ===");
-      console.log("Room ID:", data.roomId);
-      console.log("Username:", data.username);
-
-      const roomData = roomParticipants.get(data.roomId);
-      console.log("Room data:", JSON.stringify(roomData, null, 2));
-      console.log(
-        "All rooms:",
-        JSON.stringify(Object.fromEntries(roomParticipants), null, 2)
-      );
-
-      // Only allow starting if there are exactly 2 participants and debate hasn't started
-      if (
-        roomData &&
-        roomData.participants.length === 2 &&
-        !roomData.debateStarted
-      ) {
-        console.log("Starting debate - conditions met");
-        roomData.debateStarted = true;
-        roomData.currentTurn = 0; // Start with first participant
-        roomData.currentSpeaker =
-          roomData.participants[roomData.currentTurn].username;
-        roomParticipants.set(data.roomId, roomData);
-
-        // Start turn timer for first participant
-        startTurnTimer(data.roomId);
-
-        // Notify all participants that debate has started
-        const roomInfo = {
-          participants: roomData.participants,
-          currentTurn: roomData.currentTurn,
-          currentSpeaker: roomData.currentSpeaker,
-          debateStarted: roomData.debateStarted,
-        };
-
-        console.log(
-          "Sending debate started event with room info:",
-          JSON.stringify(roomInfo, null, 2)
-        );
-        io.to(data.roomId).emit("debate-started", roomInfo);
-        io.to(data.roomId).emit("room-updated", roomInfo);
-
-        console.log(
-          `Debate started in room ${data.roomId} by ${data.username}`
-        );
-        console.log("=== END START DEBATE EVENT ===\n");
-      } else {
-        console.log("Cannot start debate - conditions not met");
-        console.log("Room exists:", !!roomData);
-        console.log("Participants count:", roomData?.participants?.length || 0);
-        console.log("Debate started:", roomData?.debateStarted);
-        socket.emit("start-debate-failed", {
-          message:
-            "Cannot start debate. Need exactly 2 participants and debate must not have started yet.",
-        });
-      }
-    });
-
-    // Handle motion request
-    socket.on("request-motion", async (data) => {
-      console.log("\n=== REQUEST MOTION EVENT ===");
-      console.log("Room ID:", data.roomId);
-      console.log("Username:", data.username);
-
-      const roomData = roomParticipants.get(data.roomId);
-      const motionState = motionStates.get(data.roomId);
-
-      if (!roomData || !motionState || !motionState.waitingForMotion) {
-        console.log("⚠️ Motion request invalid - no active motion state");
-        return;
-      }
-
-      if (motionState.currentSpeaker !== data.username) {
-        console.log("⚠️ Motion request invalid - not current speaker");
-        return;
-      }
-
-      console.log("📋 Processing motion request from:", data.username);
-
-      // Clear motion timer
-      clearMotionTimer(data.roomId);
-
-      // Clear motion state
-      motionStates.delete(data.roomId);
-
-      // Notify clients that motion state is cleared
-      io.to(data.roomId).emit("motion-state-update", {
-        waitingForMotion: false,
-        roomId: data.roomId,
-      });
-
-      // Restart turn timer for 1 minute so user has time to write motion
-      startTurnTimer(data.roomId);
-
-      // DO NOT send "MOCIÓN" message to chat
-      // DO NOT switch turns - keep current speaker
-      // The user can now send a message in format "mocion:[mensaje]"
-
-      console.log(
-        "📋 Motion request processed - user can now send motion message with 1 minute timer"
-      );
-
-      console.log("=== END REQUEST MOTION EVENT ===\n");
     });
 
     // Handle disconnect
     socket.on("disconnect", () => {
       console.log("\n=== DISCONNECT EVENT ===");
-      console.log("User disconnected:", socket.id);
+      console.log("🔌 User disconnected:", {
+        socketId: socket.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Check which rooms this socket was in
+      const socketRooms = Array.from(socket.rooms);
+      console.log("🏠 Socket was in rooms:", socketRooms);
+
       console.log(
         "Current rooms before disconnect:",
         JSON.stringify(Object.fromEntries(roomParticipants), null, 2)
@@ -786,11 +497,6 @@ app.prepare().then(() => {
 
           roomData.participants.splice(participantIndex, 1);
 
-          // Adjust turn if needed
-          if (roomData.currentTurn >= roomData.participants.length) {
-            roomData.currentTurn = 0;
-          }
-
           roomParticipants.set(roomId, roomData);
 
           // Notify remaining participants
@@ -800,10 +506,6 @@ app.prepare().then(() => {
             );
             const roomInfo = {
               participants: roomData.participants,
-              currentTurn: roomData.currentTurn,
-              currentSpeaker:
-                roomData.participants[roomData.currentTurn]?.username || null,
-              debateStarted: roomData.debateStarted,
             };
             io.to(roomId).emit("room-updated", roomInfo);
             io.to(roomId).emit("user-left", { username: participant.username });
@@ -812,9 +514,6 @@ app.prepare().then(() => {
             // Clean up empty room
             roomParticipants.delete(roomId);
             roomConfigs.delete(roomId);
-            clearTurnTimer(roomId);
-            clearMotionTimer(roomId);
-            motionStates.delete(roomId);
           }
 
           console.log(

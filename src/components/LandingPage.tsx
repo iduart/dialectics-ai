@@ -13,29 +13,23 @@ interface LandingPageProps {
 }
 
 interface DebateConfig {
-  description: string;
   customSystemPrompt: string;
   toleranceLevel: string;
-  duration: string;
 }
 
 export default function LandingPage({ onJoinRoom }: LandingPageProps) {
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState("");
   const [activeTab, setActiveTab] = useState<"create" | "join">("create");
-  const [debateDescription, setDebateDescription] = useState("");
   const [customSystemPrompt, setCustomSystemPrompt] = useState("");
   const [toleranceLevel, setToleranceLevel] = useState("1");
-  const [duration, setDuration] = useState("30");
 
   const handleCreateRoom = () => {
     if (username.trim() && customSystemPrompt.trim()) {
       const newRoomId = uuidv4();
       const debateConfig: DebateConfig = {
-        description: debateDescription,
         customSystemPrompt: customSystemPrompt.trim(),
         toleranceLevel: toleranceLevel,
-        duration: duration,
       };
       onJoinRoom(newRoomId, username, debateConfig, true);
     }
@@ -117,25 +111,6 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
           {/* Tab Content */}
           {activeTab === "create" ? (
             <>
-              {/* Debate Description - DISABLED */}
-              <div>
-                <label
-                  htmlFor="debateDescription"
-                  className="block text-sm font-medium text-gray-400 dark:text-slate-500 mb-2"
-                >
-                  Debate Topic / Context (Disabled for testing)
-                </label>
-                <textarea
-                  id="debateDescription"
-                  value={debateDescription}
-                  onChange={(e) => setDebateDescription(e.target.value)}
-                  placeholder="Describe the topic or provide context for the debate..."
-                  rows={3}
-                  disabled
-                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-gray-100 dark:bg-slate-900 text-gray-500 dark:text-slate-500 placeholder-gray-400 dark:placeholder-slate-600 cursor-not-allowed resize-none"
-                />
-              </div>
-
               {/* Custom System Prompt - REQUIRED */}
               <div>
                 <label
@@ -184,26 +159,6 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
                     Nivel 3 (Intenso) - Se aceptan expresiones más duras, nunca
                     insultos directos
                   </option>
-                </select>
-              </div>
-
-              {/* Duration */}
-              <div>
-                <label
-                  htmlFor="duration"
-                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
-                >
-                  Discussion Duration
-                </label>
-                <select
-                  id="duration"
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
-                >
-                  <option value="15">15 minutes</option>
-                  <option value="30">30 minutes</option>
-                  <option value="45">45 minutes</option>
                 </select>
               </div>
 

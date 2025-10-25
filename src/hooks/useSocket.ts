@@ -15,9 +15,6 @@ export interface Message {
 
 export interface RoomInfo {
   participants: Array<{ socketId: string; username: string }>;
-  currentTurn: number;
-  currentSpeaker: string | null;
-  debateStarted: boolean;
 }
 
 export const useSocket = () => {
@@ -25,6 +22,7 @@ export const useSocket = () => {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
+    console.log("🔄 Creating new socket connection...");
     const newSocket = io(
       process.env.NODE_ENV === "production"
         ? window.location.origin
@@ -35,25 +33,42 @@ export const useSocket = () => {
         rememberUpgrade: true,
       }
     );
+    console.log("🆕 Socket created:", newSocket.id);
 
     newSocket.on("connect", () => {
-      console.log("✅ Connected to server", newSocket.id);
+      console.log("✅ Connected to server:", {
+        socketId: newSocket.id,
+        timestamp: new Date().toISOString(),
+        transport: newSocket.io.engine.transport.name,
+        url: newSocket.io.uri,
+      });
       setConnected(true);
+      // Force a re-render to update socket ID
+      setSocket(newSocket);
     });
 
     newSocket.on("disconnect", (reason) => {
-      console.log("❌ Disconnected from server", reason);
+      console.log("❌ Disconnected from server:", {
+        reason: reason,
+        socketId: newSocket.id,
+        timestamp: new Date().toISOString(),
+      });
       setConnected(false);
     });
 
     newSocket.on("connect_error", (error) => {
-      console.error("🚨 Connection error:", error);
+      console.error("🚨 Connection error:", {
+        error: error.message,
+        socketId: newSocket.id,
+        timestamp: new Date().toISOString(),
+      });
       setConnected(false);
     });
 
     setSocket(newSocket);
 
     return () => {
+      console.log("🧹 Cleaning up socket:", newSocket.id);
       newSocket.close();
     };
   }, []);
@@ -77,8 +92,17 @@ export const useSocket = () => {
 
   const sendMessage = useCallback(
     (roomId: string, message: string, username: string) => {
+      console.log("🟡 Emitting send-message:", {
+        roomId,
+        message,
+        username,
+        socketId: socket?.id,
+      });
       if (socket) {
         socket.emit("send-message", { roomId, message, username });
+        console.log("📤 send-message event sent");
+      } else {
+        console.log("🔴 No socket available");
       }
     },
     [socket]
@@ -128,33 +152,11 @@ export const useSocket = () => {
     [socket]
   );
 
-  const onRoomFull = useCallback(
-    (callback: (data: { message: string }) => void) => {
-      if (socket) {
-        socket.on("room-full", callback);
-        return () => socket.off("room-full", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
   const onUsernameTaken = useCallback(
     (callback: (data: { message: string }) => void) => {
       if (socket) {
         socket.on("username-taken", callback);
         return () => socket.off("username-taken", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
-  const onNotYourTurn = useCallback(
-    (callback: (data: { message: string; currentSpeaker: string }) => void) => {
-      if (socket) {
-        socket.on("not-your-turn", callback);
-        return () => socket.off("not-your-turn", callback);
       }
       return () => {};
     },
@@ -189,97 +191,11 @@ export const useSocket = () => {
     [socket]
   );
 
-  const startDebate = useCallback(
-    (roomId: string, username: string) => {
-      if (socket) {
-        socket.emit("start-debate", { roomId, username });
-      }
-    },
-    [socket]
-  );
-
-  const requestMotion = useCallback(
-    (data: { roomId: string; username: string }) => {
-      if (socket) {
-        socket.emit("request-motion", data);
-      }
-    },
-    [socket]
-  );
-
-  const onDebateStarted = useCallback(
-    (callback: (roomInfo: RoomInfo) => void) => {
-      if (socket) {
-        socket.on("debate-started", callback);
-        return () => socket.off("debate-started", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
-  const onDebateNotStarted = useCallback(
-    (callback: (data: { message: string }) => void) => {
-      if (socket) {
-        socket.on("debate-not-started", callback);
-        return () => socket.off("debate-not-started", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
-  const onStartDebateFailed = useCallback(
-    (callback: (data: { message: string }) => void) => {
-      if (socket) {
-        socket.on("start-debate-failed", callback);
-        return () => socket.off("start-debate-failed", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
   const onWaitingForCreator = useCallback(
     (callback: (data: { message: string }) => void) => {
       if (socket) {
         socket.on("waiting-for-creator", callback);
         return () => socket.off("waiting-for-creator", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
-  const onTurnTimeUpdate = useCallback(
-    (callback: (data: { timeLeft: number; roomId: string }) => void) => {
-      if (socket) {
-        socket.on("turn-time-update", callback);
-        return () => socket.off("turn-time-update", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
-  const onMotionTimeUpdate = useCallback(
-    (callback: (data: { timeLeft: number; roomId: string }) => void) => {
-      if (socket) {
-        socket.on("motion-time-update", callback);
-        return () => socket.off("motion-time-update", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
-  const onMotionStateUpdate = useCallback(
-    (
-      callback: (data: { waitingForMotion: boolean; roomId: string }) => void
-    ) => {
-      if (socket) {
-        socket.on("motion-state-update", callback);
-        return () => socket.off("motion-state-update", callback);
       }
       return () => {};
     },
@@ -295,19 +211,9 @@ export const useSocket = () => {
     onUserJoined,
     onMessageHistory,
     onRoomUpdated,
-    onRoomFull,
     onUsernameTaken,
-    onNotYourTurn,
     onUserLeft,
     onRoomConfig,
-    startDebate,
-    onDebateStarted,
-    onDebateNotStarted,
-    onStartDebateFailed,
     onWaitingForCreator,
-    onTurnTimeUpdate,
-    onMotionTimeUpdate,
-    onMotionStateUpdate,
-    requestMotion,
   };
 };
