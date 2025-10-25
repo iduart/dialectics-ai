@@ -3,13 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSocket, Message as MessageType, RoomInfo } from "@/hooks/useSocket";
 import Message from "./Message";
-
-interface DebateConfig {
-  description: string;
-  toleranceLevel: string;
-  duration: string;
-  prompts?: string[];
-}
+import { DebateConfig } from "@/types";
 
 interface ChatProps {
   roomId: string;
@@ -25,7 +19,7 @@ export default function Chat({
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [socketId, setSocketId] = useState<string>("");
-  const [isDebateEnded, setIsDebateEnded] = useState(false);
+  const [isDebateEnded] = useState(false);
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [debateConfig, setDebateConfig] = useState<DebateConfig | null>(
@@ -73,7 +67,7 @@ export default function Chat({
       console.log("🔴 No socket available");
       setSocketId("");
     }
-  }, [socket]);
+  }, [socket, socketId]);
 
   useEffect(() => {
     if (socket && roomId && username) {
@@ -86,7 +80,7 @@ export default function Chat({
       // Only join once, don't rejoin when debateConfig changes
       joinRoom(roomId, username, debateConfig);
     }
-  }, [socket, roomId, username, joinRoom]);
+  }, [socket, roomId, username, joinRoom, debateConfig]);
 
   useEffect(() => {
     const unsubscribeReceive = onReceiveMessage((message: MessageType) => {
@@ -164,6 +158,7 @@ export default function Chat({
     onUserLeft,
     onRoomConfig,
     onWaitingForCreator,
+    socketId,
   ]);
 
   useEffect(() => {

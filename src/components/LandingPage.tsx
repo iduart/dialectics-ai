@@ -2,26 +2,21 @@
 
 import { useState } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { DebateConfig } from "@/types";
 
 interface LandingPageProps {
   onJoinRoom: (
     roomId: string,
     username: string,
-    debateConfig: DebateConfig | undefined,
-    isCreating: boolean
+    debateConfig: DebateConfig | undefined
   ) => void;
-}
-
-interface DebateConfig {
-  toleranceLevel: string;
-  prompts: string[];
 }
 
 export default function LandingPage({ onJoinRoom }: LandingPageProps) {
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState("");
   const [activeTab, setActiveTab] = useState<"create" | "join">("create");
-  const [toleranceLevel, setToleranceLevel] = useState("1");
+  const [toleranceLevel] = useState("1");
   const [prompts, setPrompts] = useState<string[]>(["", "", "", "", "", ""]);
 
   const handlePromptChange = (index: number, value: string) => {
@@ -34,28 +29,19 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
     if (username.trim()) {
       const newRoomId = uuidv4();
       const debateConfig: DebateConfig = {
+        description: "Custom debate room",
         toleranceLevel: toleranceLevel,
+        duration: "30",
         prompts: prompts.filter((prompt) => prompt.trim() !== ""),
       };
-      onJoinRoom(newRoomId, username, debateConfig, true);
+      onJoinRoom(newRoomId, username, debateConfig);
     }
   };
 
   const handleJoinRoom = () => {
     if (username.trim() && roomId.trim()) {
-      onJoinRoom(roomId, username, undefined, false);
+      onJoinRoom(roomId, username, undefined);
     }
-  };
-
-  const handleJoinExistingRoom = () => {
-    setActiveTab("join");
-    setRoomId("");
-  };
-
-  const copyRoomLink = () => {
-    const url = `${window.location.origin}?room=${roomId}`;
-    navigator.clipboard.writeText(url);
-    alert("Room link copied to clipboard!");
   };
 
   return (

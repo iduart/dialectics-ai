@@ -4,12 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import LandingPage from "@/components/LandingPage";
 import Chat from "@/components/Chat";
-
-interface DebateConfig {
-  description: string;
-  toleranceLevel: string;
-  duration: string;
-}
+import { DebateConfig } from "@/types";
 
 function HomeContent() {
   const [roomId, setRoomId] = useState<string>("");
@@ -29,8 +24,7 @@ function HomeContent() {
   const handleJoinRoom = (
     roomId: string,
     username: string,
-    debateConfig: DebateConfig | undefined,
-    isCreating: boolean
+    debateConfig: DebateConfig | undefined
   ) => {
     setRoomId(roomId);
     setUsername(username);

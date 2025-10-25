@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
+import { DebateConfig } from "@/types";
 
 export interface Message {
   id: string;
@@ -74,14 +75,7 @@ export const useSocket = () => {
   }, []);
 
   const joinRoom = useCallback(
-    (
-      roomId: string,
-      username: string,
-      debateConfig?: {
-        toleranceLevel: string;
-        prompts?: string[];
-      } | null
-    ) => {
+    (roomId: string, username: string, debateConfig?: DebateConfig | null) => {
       if (socket) {
         socket.emit("join-room", { roomId, username, debateConfig });
       }
