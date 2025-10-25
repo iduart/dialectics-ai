@@ -100,6 +100,30 @@ export const useSocket = () => {
     [socket]
   );
 
+  const queryAI = useCallback(
+    (query: string, username: string, roomId: string) => {
+      console.log("🤖 Querying AI:", {
+        query,
+        username,
+        roomId,
+        socketId: socket?.id,
+        socketConnected: socket?.connected,
+      });
+      if (socket) {
+        console.log("📤 Emitting query-ai event with data:", {
+          query,
+          username,
+          roomId,
+        });
+        socket.emit("query-ai", { query, username, roomId });
+        console.log("✅ query-ai event sent successfully");
+      } else {
+        console.log("🔴 No socket available for AI query");
+      }
+    },
+    [socket]
+  );
+
   const onReceiveMessage = useCallback(
     (callback: (message: Message) => void) => {
       if (socket) {
@@ -194,11 +218,23 @@ export const useSocket = () => {
     [socket]
   );
 
+  const onAIQueryResponse = useCallback(
+    (callback: (response: Message) => void) => {
+      if (socket) {
+        socket.on("ai-query-response", callback);
+        return () => socket.off("ai-query-response", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
   return {
     socket,
     connected,
     joinRoom,
     sendMessage,
+    queryAI,
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,
@@ -207,5 +243,6 @@ export const useSocket = () => {
     onUserLeft,
     onRoomConfig,
     onWaitingForCreator,
+    onAIQueryResponse,
   };
 };

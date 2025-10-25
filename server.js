@@ -39,21 +39,47 @@ class AIService {
 
   // AI call method for moderation
   async callAI(systemPrompt, userPrompt) {
+    console.log("🔧 AIService.callAI called with:", {
+      systemPromptLength: systemPrompt?.length || 0,
+      userPromptLength: userPrompt?.length || 0,
+      systemPromptPreview: systemPrompt?.substring(0, 100) + "...",
+      userPromptPreview: userPrompt?.substring(0, 100) + "...",
+    });
+
     if (!this.isAvailable()) {
+      console.log("❌ AIService: OpenAI API not available");
       throw new Error("OpenAI API not available");
     }
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.3,
-      max_tokens: 500,
-    });
+    console.log("🔧 AIService: About to call OpenAI API...");
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 500,
+      });
 
-    return completion.choices[0]?.message?.content;
+      console.log("🔧 AIService: OpenAI API call completed");
+      console.log("🔧 AIService: Response received:", {
+        choicesLength: completion.choices?.length || 0,
+        firstChoiceContent:
+          completion.choices?.[0]?.message?.content?.substring(0, 100) + "...",
+      });
+
+      const result = completion.choices[0]?.message?.content;
+      console.log(
+        "🔧 AIService: Returning result:",
+        result?.substring(0, 100) + "..."
+      );
+      return result;
+    } catch (error) {
+      console.error("🔧 AIService: OpenAI API error:", error);
+      throw error;
+    }
   }
 
   // AI Moderation with custom prompt
@@ -488,9 +514,152 @@ app.prepare().then(() => {
                 `🤖 AI intervention sent for prompt ${result.promptIndex + 1}:`,
                 result.response
               );
+
+              // Send reasoning to side chat for all participants
+              const reasoningMessage = {
+                id: `ai-reasoning-${Date.now()}-${result.promptIndex}`,
+                message: `AI Intervention Reasoning (Prompt ${
+                  result.promptIndex + 1
+                }): ${result.reason || "No specific reason provided"}`,
+                username: "AI Assistant",
+                timestamp: new Date().toISOString(),
+                socketId: "ai-assistant",
+                isAIModerator: true,
+              };
+
+              io.to(data.roomId).emit("ai-query-response", reasoningMessage);
             }
           }
         }
+      }
+    });
+
+    // Handle AI queries
+    socket.on("query-ai", async (data) => {
+      console.log("\n=== AI QUERY RECEIVED ===");
+      console.log("🤖 AI Query:", {
+        query: data.query,
+        username: data.username,
+        roomId: data.roomId,
+        socketId: socket.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Check if AI service is available
+      if (!aiService.isAvailable()) {
+        console.log("❌ AI Service not available - no OpenAI API key");
+        socket.emit("ai-query-response", {
+          id: `ai-query-error-${Date.now()}`,
+          message:
+            "El servicio de IA no está disponible. Por favor, verifica que la clave API de OpenAI esté configurada.",
+          username: "AI Assistant",
+          timestamp: new Date().toISOString(),
+          socketId: "ai-assistant",
+          isAIModerator: true,
+        });
+        return;
+      }
+
+      try {
+        // Get conversation history for context
+        const conversationHistory = messageStore.get(data.roomId) || [];
+        const debateConfig = roomConfigs.get(data.roomId);
+
+        console.log("🔍 AI Query Context:", {
+          roomId: data.roomId,
+          conversationHistoryLength: conversationHistory.length,
+          debateConfigExists: !!debateConfig,
+          promptsCount: debateConfig?.prompts?.length || 0,
+        });
+
+        // Create a context-aware prompt for the AI
+        const contextPrompt = `You are an AI assistant helping users understand your moderation decisions in a debate room. 
+
+Current debate context:
+- Room has ${debateConfig?.prompts?.length || 0} custom analysis prompts
+- Recent conversation: ${conversationHistory
+          .slice(-5)
+          .map((msg) => `${msg.username}: ${msg.message}`)
+          .join("\n")}
+
+User's question: "${data.query}"
+
+Please provide a helpful, clear explanation about your moderation decisions, reasoning, or any other aspect of the debate that the user is asking about. Be specific and reference the actual prompts and rules when relevant. 
+
+IMPORTANT: Think and analyze in English, but respond entirely in Spanish.`;
+
+        console.log(
+          "🤖 Calling AI service with prompt:",
+          contextPrompt.substring(0, 200) + "..."
+        );
+        console.log("🔍 Full context prompt:", contextPrompt);
+        console.log("📞 About to call aiService.callAI()...");
+
+        const aiResponse = await aiService.callAI(
+          "You are a helpful AI assistant that explains your moderation decisions in debates. Think and reason in English, but ALWAYS respond in Spanish. Be clear, specific, and reference the actual rules and prompts when relevant. Your response must be entirely in Spanish.",
+          contextPrompt
+        );
+
+        console.log("📞 aiService.callAI() completed");
+        console.log("🤖 AI Response received:", {
+          responseLength: aiResponse?.length || 0,
+          responsePreview: aiResponse?.substring(0, 100) + "...",
+          fullResponse: aiResponse,
+        });
+
+        // Send AI response back to the user
+        console.log("📝 Creating response message...");
+        const responseMessage = {
+          id: `ai-query-${Date.now()}`,
+          message:
+            aiResponse ||
+            "Lo siento, no pude procesar tu pregunta en este momento. Por favor, inténtalo de nuevo.",
+          username: "AI Assistant",
+          timestamp: new Date().toISOString(),
+          socketId: "ai-assistant",
+          isAIModerator: true,
+        };
+
+        console.log("📝 Response message created:", {
+          id: responseMessage.id,
+          messageLength: responseMessage.message.length,
+          messagePreview: responseMessage.message.substring(0, 100) + "...",
+          username: responseMessage.username,
+          socketId: responseMessage.socketId,
+          isAIModerator: responseMessage.isAIModerator,
+        });
+
+        console.log("📤 About to emit ai-query-response to socket:", socket.id);
+        socket.emit("ai-query-response", responseMessage);
+        console.log("📤 ai-query-response event emitted successfully");
+        console.log(
+          "✅ AI Query response sent:",
+          aiResponse?.substring(0, 100) + "..."
+        );
+        console.log("=== END AI QUERY ===\n");
+      } catch (error) {
+        console.error("❌ AI Query error:", error);
+        console.error("❌ Error details:", {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+        });
+
+        const errorMessage = {
+          id: `ai-query-error-${Date.now()}`,
+          message:
+            "Lo siento, encontré un error al procesar tu pregunta. Por favor, inténtalo de nuevo.",
+          username: "AI Assistant",
+          timestamp: new Date().toISOString(),
+          socketId: "ai-assistant",
+          isAIModerator: true,
+        };
+
+        console.log("📝 Error message created:", errorMessage);
+        console.log("📤 About to emit error response to socket:", socket.id);
+        socket.emit("ai-query-response", errorMessage);
+        console.log("📤 Error response emitted successfully");
+        console.log("=== END AI QUERY (ERROR) ===\n");
       }
     });
 
