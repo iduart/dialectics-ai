@@ -70,7 +70,7 @@ export default function Chat({
       };
       checkId();
     } else {
-      console.log("🔴 No socket available");
+      console.log("🔴 No socket availabless");
       setSocketId("");
     }
   }, [socket, socketId]);
