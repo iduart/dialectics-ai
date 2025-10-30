@@ -106,7 +106,7 @@ class AIService {
     try {
       response = await this.callAI(customPrompt || "", userPrompt);
       console.log(
-        "🤖 Raw AI response for custom prompt (free-form):",
+        "🤖 Raw AI response for custom prompt (free-form)1:",
         response
       );
 
