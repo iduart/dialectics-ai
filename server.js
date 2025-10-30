@@ -100,56 +100,24 @@ class AIService {
         .join("\n")}\n`;
     }
 
-    const userPrompt = `You must analyze the following message according to the rules and behavior defined below.
-
-RULES AND BEHAVIOR:
-${customPrompt}
-
-MESSAGE TO ANALYZE:
-User: "${username}"
-Message: "${message}"${conversationContext}
-
-RESPONSE INSTRUCTIONS:
-1. Evaluate if you should intervene according to the rules established above
-2. If the rules indicate that you should respond/intervene/greet/act in some way, set shouldRespond: true
-3. If there is no need for intervention according to the rules, set shouldRespond: false
-
-CRITICAL: Respond ONLY with valid JSON. DO NOT use markdown, DO NOT include additional text, DO NOT use \`\`\`json\`\`\`. Only pure JSON.
-
-Required JSON format:
-{
-  "shouldRespond": true/false,
-  "response": "your message/response/greeting/intervention if shouldRespond is true, empty if false",
-  "reason": "brief reason for your decision"
-}`;
+    const userPrompt = `${username}: ${message}${conversationContext}`;
 
     let response;
     try {
-      response = await this.callAI(customPrompt, userPrompt);
-      console.log("🤖 Raw AI response for custom prompt:", response);
+      response = await this.callAI(customPrompt || "", userPrompt);
+      console.log(
+        "🤖 Raw AI response for custom prompt (free-form):",
+        response
+      );
 
       if (!response || response.trim() === "") {
         console.log("⚠️ Empty AI response received for custom prompt");
         return { shouldRespond: false };
       }
 
-      // Clean response - remove markdown code blocks if present
-      let cleanResponse = response.trim();
-      if (cleanResponse.startsWith("```json")) {
-        cleanResponse = cleanResponse
-          .replace(/^```json\s*/, "")
-          .replace(/\s*```$/, "");
-      } else if (cleanResponse.startsWith("```")) {
-        cleanResponse = cleanResponse
-          .replace(/^```\s*/, "")
-          .replace(/\s*```$/, "");
-      }
-
-      const parsed = JSON.parse(cleanResponse);
       return {
-        shouldRespond: parsed.shouldRespond || false,
-        response: parsed.response,
-        reason: parsed.reason,
+        shouldRespond: true,
+        response: response.trim(),
       };
     } catch (error) {
       console.error("AI Moderation error for custom prompt:", error);
@@ -572,33 +540,23 @@ app.prepare().then(() => {
           promptsCount: debateConfig?.prompts?.length || 0,
         });
 
-        // Create a context-aware prompt for the AI
-        const contextPrompt = `You are an AI assistant helping users understand your moderation decisions in a debate room. 
-
-Current debate context:
-- Room has ${debateConfig?.prompts?.length || 0} custom analysis prompts
-- Recent conversation: ${conversationHistory
-          .slice(-5)
+        // Build a user prompt with recent conversation history as context
+        const historySnippet = (conversationHistory || [])
+          .slice(-10)
           .map((msg) => `${msg.username}: ${msg.message}`)
-          .join("\n")}
+          .join("\n");
 
-User's question: "${data.query}"
-
-Please provide a helpful, clear explanation about your moderation decisions, reasoning, or any other aspect of the debate that the user is asking about. Be specific and reference the actual prompts and rules when relevant. 
-
-IMPORTANT: Think and analyze in English, but respond entirely in Spanish.`;
+        const userPrompt = `Contexto reciente de la conversación (últimos 10 mensajes):\n${historySnippet}\n\nPregunta del usuario: ${data.query}`;
 
         console.log(
-          "🤖 Calling AI service with prompt:",
-          contextPrompt.substring(0, 200) + "..."
+          "🤖 Calling AI service with user prompt (with history):",
+          userPrompt.substring(0, 200) + "..."
         );
-        console.log("🔍 Full context prompt:", contextPrompt);
-        console.log("📞 About to call aiService.callAI()...");
+        console.log(
+          "📞 About to call aiService.callAI() with empty system prompt..."
+        );
 
-        const aiResponse = await aiService.callAI(
-          "You are a helpful AI assistant that explains your moderation decisions in debates. Think and reason in English, but ALWAYS respond in Spanish. Be clear, specific, and reference the actual rules and prompts when relevant. Your response must be entirely in Spanish.",
-          contextPrompt
-        );
+        const aiResponse = await aiService.callAI("", userPrompt);
 
         console.log("📞 aiService.callAI() completed");
         console.log("🤖 AI Response received:", {
