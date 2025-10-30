@@ -62,7 +62,7 @@ export default function Chat({
       // Wait for socket to get an ID
       const checkId = () => {
         if (socket.id) {
-          console.log("🆔 Socket ID now available:", socket.id);
+          console.log("🆔 Socket ID now available1:", socket.id);
           setSocketId(socket.id);
         } else {
           setTimeout(checkId, 100);
