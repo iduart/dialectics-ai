@@ -3,4 +3,5 @@ export interface DebateConfig {
   toleranceLevel: string;
   duration: string;
   prompts?: string[];
+  mocionPrompt?: string;
 }

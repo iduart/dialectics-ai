@@ -6,9 +6,10 @@ import { formatDistanceToNow } from "date-fns";
 interface MessageProps {
   message: MessageType;
   isOwn: boolean;
+  onMocionClick?: (message: MessageType) => void;
 }
 
-export default function Message({ message, isOwn }: MessageProps) {
+export default function Message({ message, isOwn, onMocionClick }: MessageProps) {
   const isAIModerator = message.isAIModerator;
 
   // Debug: Log the alignment info
@@ -36,10 +37,20 @@ export default function Message({ message, isOwn }: MessageProps) {
               <span className="font-medium">Reason:</span> {message.reason}
             </div>
           )}
-          <div className="text-xs text-amber-600 dark:text-amber-400 mt-2 text-center">
-            {formatDistanceToNow(new Date(message.timestamp), {
-              addSuffix: true,
-            })}
+          <div className="flex items-center justify-between mt-3">
+            <div className="text-xs text-amber-600 dark:text-amber-400">
+              {formatDistanceToNow(new Date(message.timestamp), {
+                addSuffix: true,
+              })}
+            </div>
+            {onMocionClick && (
+              <button
+                onClick={() => onMocionClick(message)}
+                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
+              >
+                Mocion
+              </button>
+            )}
           </div>
         </div>
       </div>

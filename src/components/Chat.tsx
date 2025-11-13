@@ -28,6 +28,10 @@ export default function Chat({
   const [showSideChat, setShowSideChat] = useState(false);
   const [sideChatMessages, setSideChatMessages] = useState<MessageType[]>([]);
   const [sideChatInput, setSideChatInput] = useState("");
+  const [showMocionModal, setShowMocionModal] = useState(false);
+  const [selectedMocionMessage, setSelectedMocionMessage] =
+    useState<MessageType | null>(null);
+  const [mocionText, setMocionText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sideChatEndRef = useRef<HTMLDivElement>(null);
 
@@ -37,6 +41,7 @@ export default function Chat({
     joinRoom,
     sendMessage,
     queryAI,
+    submitMocion,
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,
@@ -154,10 +159,6 @@ export default function Chat({
           id: response.id,
           timestamp: response.timestamp,
         });
-        console.log(
-          "📝 Current side chat messages before adding:",
-          sideChatMessages.length
-        );
         setSideChatMessages((prev) => {
           const newMessages = [...prev, response];
           console.log(
@@ -259,6 +260,33 @@ export default function Chat({
         username,
         roomId,
       });
+    }
+  };
+
+  const handleMocionClick = (message: MessageType) => {
+    setSelectedMocionMessage(message);
+    setShowMocionModal(true);
+    setMocionText("");
+  };
+
+  const handleMocionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (mocionText.trim() && selectedMocionMessage && submitMocion) {
+      console.log("📝 Submitting mocion:", {
+        moderatorMessage: selectedMocionMessage.message,
+        mocionText: mocionText.trim(),
+        username,
+        roomId,
+      });
+      submitMocion(
+        roomId,
+        username,
+        selectedMocionMessage.message,
+        mocionText.trim()
+      );
+      setShowMocionModal(false);
+      setMocionText("");
+      setSelectedMocionMessage(null);
     }
   };
 
@@ -418,7 +446,12 @@ export default function Chat({
                   `Chat: Message from ${message.username}, message.socketId: "${message.socketId}", current socketId: "${socketId}", isOwn: ${isOwn}`
                 );
                 return (
-                  <Message key={message.id} message={message} isOwn={isOwn} />
+                  <Message
+                    key={message.id}
+                    message={message}
+                    isOwn={isOwn}
+                    onMocionClick={handleMocionClick}
+                  />
                 );
               })}
             </div>
@@ -457,6 +490,55 @@ export default function Chat({
           )}
         </div>
       </div>
+
+      {/* Mocion Modal */}
+      {showMocionModal && selectedMocionMessage && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4">
+            <h2 className="text-xl font-semibold text-gray-800 dark:text-slate-100 mb-4">
+              Moción
+            </h2>
+            <p className="text-sm text-gray-700 dark:text-slate-300 mb-4">
+              Participante <strong>{username}</strong> está solicitando una
+              moción al siguiente mensaje del moderador:
+            </p>
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-4 mb-4">
+              <p className="text-sm text-amber-900 dark:text-amber-100">
+                {selectedMocionMessage.message}
+              </p>
+            </div>
+            <form onSubmit={handleMocionSubmit}>
+              <textarea
+                value={mocionText}
+                onChange={(e) => setMocionText(e.target.value)}
+                placeholder="Escribe tu aclaración aquí..."
+                rows={6}
+                className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm mb-4"
+              />
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMocionModal(false);
+                    setMocionText("");
+                    setSelectedMocionMessage(null);
+                  }}
+                  className="px-4 py-2 bg-gray-200 dark:bg-slate-600 text-gray-800 dark:text-slate-200 rounded-lg hover:bg-gray-300 dark:hover:bg-slate-500 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!mocionText.trim()}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 dark:disabled:bg-slate-600 text-white rounded-lg font-medium transition-colors disabled:cursor-not-allowed"
+                >
+                  Enviar moción
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Side Chat Panel */}
       {showSideChat && (

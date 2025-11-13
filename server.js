@@ -621,6 +621,114 @@ app.prepare().then(() => {
       }
     });
 
+    // Handle mocion submission
+    socket.on("submit-mocion", async (data) => {
+      console.log("\n=== MOCION SUBMISSION RECEIVED ===");
+      console.log("📝 Mocion:", {
+        roomId: data.roomId,
+        username: data.username,
+        moderatorMessage: data.moderatorMessage,
+        mocionMessage: data.mocionMessage,
+        socketId: socket.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      try {
+        const roomData = roomParticipants.get(data.roomId);
+        if (!roomData) {
+          console.log("❌ Room not found:", data.roomId);
+          return;
+        }
+
+        // Get room config for mocion prompt
+        const debateConfig = roomConfigs.get(data.roomId);
+        if (!debateConfig || !debateConfig.mocionPrompt) {
+          console.log("❌ No mocion prompt configured for room:", data.roomId);
+          return;
+        }
+
+        // Get message store for the room
+        const messages = messageStore.get(data.roomId) || [];
+
+        // Post the mocion message to the chat
+        const mocionUserMessage = {
+          id: `mocion-${Date.now()}`,
+          message: `[Moción] ${data.mocionMessage}`,
+          username: data.username,
+          timestamp: new Date().toISOString(),
+          socketId: socket.id,
+        };
+
+        messages.push(mocionUserMessage);
+        messageStore.set(data.roomId, messages);
+
+        // Broadcast mocion message to room
+        console.log("📡 Broadcasting mocion message to room:", {
+          roomId: data.roomId,
+          messageId: mocionUserMessage.id,
+        });
+        io.to(data.roomId).emit("receive-message", mocionUserMessage);
+        console.log("✅ Mocion message broadcasted successfully");
+
+        // Check if AI service is available
+        if (!aiService.isAvailable()) {
+          console.log("❌ AI Service not available - no OpenAI API key");
+          return;
+        }
+
+        // Build the prompt according to the specified structure
+        const mocionPrompt = `AI moderator message: ${data.moderatorMessage}
+
+participant name: ${data.username}
+
+mocion message: ${data.mocionMessage}
+
+${debateConfig.mocionPrompt}`;
+
+        console.log("🤖 Calling AI service with mocion prompt:", {
+          promptLength: mocionPrompt.length,
+          promptPreview: mocionPrompt.substring(0, 200) + "...",
+        });
+
+        const aiResponse = await aiService.callAI("", mocionPrompt);
+
+        console.log("🤖 AI Response for mocion:", {
+          responseLength: aiResponse?.length || 0,
+          responsePreview: aiResponse?.substring(0, 100) + "...",
+        });
+
+        // Post AI response to the chat
+        const aiMocionMessage = {
+          id: `mocion-ai-${Date.now()}`,
+          message: aiResponse || "No se pudo procesar la moción.",
+          username: "Moderador",
+          timestamp: new Date().toISOString(),
+          socketId: "ai-moderator",
+          isAIModerator: true,
+        };
+
+        messages.push(aiMocionMessage);
+        messageStore.set(data.roomId, messages);
+
+        // Broadcast AI response to room
+        console.log("📡 Broadcasting AI mocion response to room:", {
+          roomId: data.roomId,
+          messageId: aiMocionMessage.id,
+        });
+        io.to(data.roomId).emit("receive-message", aiMocionMessage);
+        console.log("✅ AI mocion response broadcasted successfully");
+        console.log("=== END MOCION SUBMISSION ===\n");
+      } catch (error) {
+        console.error("❌ Mocion submission error:", error);
+        console.error("❌ Error details:", {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+        });
+        console.log("=== END MOCION SUBMISSION (ERROR) ===\n");
+      }
+    });
+
     // Handle disconnect
     socket.on("disconnect", () => {
       console.log("\n=== DISCONNECT EVENT ===");

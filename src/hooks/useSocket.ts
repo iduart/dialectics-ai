@@ -124,6 +124,42 @@ export const useSocket = () => {
     [socket]
   );
 
+  const submitMocion = useCallback(
+    (
+      roomId: string,
+      username: string,
+      moderatorMessage: string,
+      mocionMessage: string
+    ) => {
+      console.log("📝 Submitting mocion:", {
+        roomId,
+        username,
+        moderatorMessage,
+        mocionMessage,
+        socketId: socket?.id,
+        socketConnected: socket?.connected,
+      });
+      if (socket) {
+        console.log("📤 Emitting submit-mocion event with data:", {
+          roomId,
+          username,
+          moderatorMessage,
+          mocionMessage,
+        });
+        socket.emit("submit-mocion", {
+          roomId,
+          username,
+          moderatorMessage,
+          mocionMessage,
+        });
+        console.log("✅ submit-mocion event sent successfully");
+      } else {
+        console.log("🔴 No socket available for mocion submission");
+      }
+    },
+    [socket]
+  );
+
   const onReceiveMessage = useCallback(
     (callback: (message: Message) => void) => {
       if (socket) {
@@ -235,6 +271,7 @@ export const useSocket = () => {
     joinRoom,
     sendMessage,
     queryAI,
+    submitMocion,
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,

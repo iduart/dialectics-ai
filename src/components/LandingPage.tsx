@@ -18,6 +18,7 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
   const [activeTab, setActiveTab] = useState<"create" | "join">("create");
   const [toleranceLevel] = useState("1");
   const [prompts, setPrompts] = useState<string[]>(["", "", "", "", "", ""]);
+  const [mocionPrompt, setMocionPrompt] = useState("");
 
   const handlePromptChange = (index: number, value: string) => {
     const newPrompts = [...prompts];
@@ -33,6 +34,7 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
         toleranceLevel: toleranceLevel,
         duration: "30",
         prompts: prompts.filter((prompt) => prompt.trim() !== ""),
+        mocionPrompt: mocionPrompt.trim() || undefined,
       };
       onJoinRoom(newRoomId, username, debateConfig);
     }
@@ -135,6 +137,24 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
                     />
                   </div>
                 ))}
+              </div>
+
+              {/* Mocion Prompt */}
+              <div>
+                <label
+                  htmlFor="mocion-prompt"
+                  className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+                >
+                  Mocion Prompt
+                </label>
+                <textarea
+                  id="mocion-prompt"
+                  value={mocionPrompt}
+                  onChange={(e) => setMocionPrompt(e.target.value)}
+                  placeholder="Enter mocion prompt..."
+                  rows={6}
+                  className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm"
+                />
               </div>
 
               {/* Create Room Button */}
