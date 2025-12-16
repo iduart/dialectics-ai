@@ -15,9 +15,10 @@ const port = process.env.PORT || 3000;
 // In-memory message storage
 const messageStore = new Map();
 
-// Room management for 2-person debates
-const roomParticipants = new Map(); // roomId -> { participants: [] }
+// Room management for debates
+const roomParticipants = new Map(); // roomId -> { participants: [], currentTurn: 0, currentSpeaker: null }
 const roomConfigs = new Map(); // roomId -> { description, toleranceLevel, duration }
+const turnTimers = new Map(); // roomId -> { timer: Timeout, countdownInterval: Interval, timeLeft: number }
 
 // Initialize OpenAI client (primary AI)
 const openai = process.env.OPENAI_API_KEY
@@ -203,6 +204,114 @@ app.prepare().then(() => {
     allowEIO3: true,
   });
 
+  // Turn timer management functions
+  function startTurnTimer(roomId) {
+    console.log(`⏰ Starting turn timer for room ${roomId}`);
+
+    // Clear existing timer if any
+    clearTurnTimer(roomId);
+
+    // Start new timer (60 seconds)
+    const timer = setTimeout(() => {
+      console.log(`⏰ Turn timer expired for room ${roomId}`);
+      switchToNextTurn(roomId);
+    }, 60000); // 1 minute = 60,000ms
+
+    // Start countdown updates every second
+    const countdownInterval = setInterval(() => {
+      const timerInfo = turnTimers.get(roomId);
+      if (timerInfo) {
+        timerInfo.timeLeft--;
+
+        // Emit countdown update to room
+        io.to(roomId).emit("turn-time-update", {
+          timeLeft: timerInfo.timeLeft,
+          roomId: roomId,
+        });
+
+        if (timerInfo.timeLeft <= 0) {
+          clearInterval(countdownInterval);
+        }
+      } else {
+        clearInterval(countdownInterval);
+      }
+    }, 1000);
+
+    // Store timer info (including the countdown interval)
+    turnTimers.set(roomId, {
+      timer: timer,
+      countdownInterval: countdownInterval,
+      timeLeft: 60,
+      startTime: Date.now(),
+    });
+  }
+
+  function clearTurnTimer(roomId) {
+    const timerInfo = turnTimers.get(roomId);
+    if (timerInfo) {
+      clearTimeout(timerInfo.timer);
+      if (timerInfo.countdownInterval) {
+        clearInterval(timerInfo.countdownInterval);
+      }
+      turnTimers.delete(roomId);
+      console.log(`⏰ Cleared turn timer for room ${roomId}`);
+    }
+  }
+
+  function switchToNextTurn(roomId) {
+    console.log(`🔄 Switching to next turn in room ${roomId}`);
+
+    const roomData = roomParticipants.get(roomId);
+    if (
+      !roomData ||
+      !roomData.participants ||
+      roomData.participants.length === 0
+    ) {
+      console.log(
+        `⚠️ Cannot switch turn - room ${roomId} not found or no participants`
+      );
+      return;
+    }
+
+    // Switch to next participant
+    roomData.currentTurn =
+      (roomData.currentTurn + 1) % roomData.participants.length;
+    roomData.currentSpeaker =
+      roomData.participants[roomData.currentTurn].username;
+
+    console.log(
+      `🔄 Turn switched to: ${roomData.currentSpeaker} in room ${roomId}`
+    );
+
+    // Emit turn update to room
+    io.to(roomId).emit("room-updated", {
+      participants: roomData.participants,
+      currentTurn: roomData.currentTurn,
+      currentSpeaker: roomData.currentSpeaker,
+      conversationStarted: roomData.conversationStarted,
+    });
+
+    // Start timer for new turn
+    startTurnTimer(roomId);
+
+    // Emit turn timeout message
+    const timeoutMessage = {
+      id: `timeout-${Date.now()}`,
+      message: `⏰ Tiempo agotado. Continúa ${roomData.currentSpeaker}`,
+      username: "Moderador",
+      timestamp: new Date().toISOString(),
+      socketId: "ai-moderator",
+      isAIModerator: true,
+    };
+
+    // Store timeout message
+    const messages = messageStore.get(roomId) || [];
+    messages.push(timeoutMessage);
+    messageStore.set(roomId, messages);
+
+    io.to(roomId).emit("receive-message", timeoutMessage);
+  }
+
   io.on("connection", (socket) => {
     console.log("\n=== NEW SOCKET CONNECTION ===");
     console.log("🔌 New user connected:", {
@@ -223,6 +332,9 @@ app.prepare().then(() => {
       // Check if room exists and has participants
       let roomData = roomParticipants.get(roomId) || {
         participants: [],
+        currentTurn: 0,
+        currentSpeaker: null,
+        conversationStarted: false,
       };
 
       console.log("Current room data:", JSON.stringify(roomData, null, 2));
@@ -299,6 +411,9 @@ app.prepare().then(() => {
       // Send room info to all participants
       const roomInfo = {
         participants: roomData.participants,
+        currentTurn: roomData.currentTurn,
+        currentSpeaker: roomData.currentSpeaker,
+        conversationStarted: roomData.conversationStarted || false,
       };
 
       console.log("📤 Sending room info to all participants:", {
@@ -374,6 +489,27 @@ app.prepare().then(() => {
           roomData?.participants?.map((p) => p.username) || [],
         allParticipants: roomData?.participants || [],
       });
+
+      // Validate that conversation has started
+      if (!roomData || !roomData.conversationStarted) {
+        console.log("❌ Conversation not started yet, rejecting message");
+        socket.emit("message-error", {
+          message:
+            "La conversación aún no ha comenzado. Espera a que alguien inicie la conversación.",
+        });
+        return;
+      }
+
+      // Validate that it's the sender's turn
+      if (roomData.currentSpeaker !== data.username) {
+        console.log(
+          `❌ Not sender's turn. Current speaker: ${roomData.currentSpeaker}, Sender: ${data.username}`
+        );
+        socket.emit("message-error", {
+          message: `No es tu turno. Es el turno de ${roomData.currentSpeaker}.`,
+        });
+        return;
+      }
 
       const messageData = {
         id: Date.now().toString(),
@@ -499,7 +635,101 @@ app.prepare().then(() => {
             }
           }
         }
+
+        // Handle turn switching and timer management (only if conversation has started)
+        if (
+          roomData &&
+          roomData.participants &&
+          roomData.participants.length > 0 &&
+          roomData.conversationStarted
+        ) {
+          // Clear current turn timer
+          clearTurnTimer(data.roomId);
+
+          // Switch to next participant
+          roomData.currentTurn =
+            (roomData.currentTurn + 1) % roomData.participants.length;
+          roomData.currentSpeaker =
+            roomData.participants[roomData.currentTurn].username;
+          roomParticipants.set(data.roomId, roomData);
+
+          console.log(
+            `🔄 Turn switched to: ${roomData.currentSpeaker} in room ${data.roomId}`
+          );
+
+          // Start timer for new turn
+          startTurnTimer(data.roomId);
+
+          // Emit turn update to room
+          io.to(data.roomId).emit("room-updated", {
+            participants: roomData.participants,
+            currentTurn: roomData.currentTurn,
+            currentSpeaker: roomData.currentSpeaker,
+            conversationStarted: roomData.conversationStarted,
+          });
+        }
       }
+    });
+
+    // Handle start conversation
+    socket.on("start-conversation", (data) => {
+      console.log("\n=== START CONVERSATION EVENT ===");
+      console.log("🚀 Start conversation:", {
+        roomId: data.roomId,
+        username: data.username,
+        socketId: socket.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      const roomData = roomParticipants.get(data.roomId);
+      if (!roomData) {
+        console.log("❌ Room not found:", data.roomId);
+        socket.emit("conversation-start-error", {
+          message: "Room not found.",
+        });
+        return;
+      }
+
+      if (roomData.conversationStarted) {
+        console.log("⚠️ Conversation already started for room:", data.roomId);
+        socket.emit("conversation-start-error", {
+          message: "Conversation has already started.",
+        });
+        return;
+      }
+
+      if (!roomData.participants || roomData.participants.length === 0) {
+        console.log("❌ No participants in room:", data.roomId);
+        socket.emit("conversation-start-error", {
+          message: "No participants in room.",
+        });
+        return;
+      }
+
+      // Start the conversation
+      roomData.conversationStarted = true;
+      roomData.currentTurn = 0;
+      roomData.currentSpeaker = roomData.participants[0].username;
+      roomParticipants.set(data.roomId, roomData);
+
+      console.log(
+        `✅ Conversation started - first speaker: ${roomData.currentSpeaker}`
+      );
+
+      // Start timer for first participant
+      startTurnTimer(data.roomId);
+
+      // Emit room update to all participants
+      const roomInfo = {
+        participants: roomData.participants,
+        currentTurn: roomData.currentTurn,
+        currentSpeaker: roomData.currentSpeaker,
+        conversationStarted: roomData.conversationStarted,
+      };
+
+      io.to(data.roomId).emit("room-updated", roomInfo);
+      console.log("📢 Room updated - conversation started");
+      console.log("=== END START CONVERSATION EVENT ===\n");
     });
 
     // Handle AI queries

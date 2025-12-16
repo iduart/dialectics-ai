@@ -32,6 +32,7 @@ export default function Chat({
   const [selectedMocionMessage, setSelectedMocionMessage] =
     useState<MessageType | null>(null);
   const [mocionText, setMocionText] = useState("");
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sideChatEndRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +43,7 @@ export default function Chat({
     sendMessage,
     queryAI,
     submitMocion,
+    startConversation,
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,
@@ -51,6 +53,8 @@ export default function Chat({
     onRoomConfig,
     onWaitingForCreator,
     onAIQueryResponse,
+    onTurnTimeUpdate,
+    onMessageError,
   } = useSocket();
 
   useEffect(() => {
@@ -128,6 +132,7 @@ export default function Chat({
     const unsubscribeRoomUpdated = onRoomUpdated((roomInfo: RoomInfo) => {
       console.log("🏠 Room updated:", JSON.stringify(roomInfo, null, 2));
       setRoomInfo(roomInfo);
+      // Timer will be updated by turn-time-update events from server
     });
 
     const unsubscribeUsernameTaken = onUsernameTaken(
@@ -170,6 +175,20 @@ export default function Chat({
       }
     );
 
+    const unsubscribeTurnTimeUpdate = onTurnTimeUpdate(
+      (data: { timeLeft: number; roomId: string }) => {
+        if (data.roomId === roomId) {
+          setTimeLeft(data.timeLeft);
+        }
+      }
+    );
+
+    const unsubscribeMessageError = onMessageError(
+      (data: { message: string }) => {
+        setErrorMessage(data.message);
+      }
+    );
+
     return () => {
       unsubscribeReceive();
       unsubscribeJoin();
@@ -180,6 +199,8 @@ export default function Chat({
       unsubscribeRoomConfig();
       unsubscribeWaitingForCreator();
       unsubscribeAIQueryResponse();
+      unsubscribeTurnTimeUpdate();
+      unsubscribeMessageError();
     };
   }, [
     onReceiveMessage,
@@ -191,7 +212,10 @@ export default function Chat({
     onRoomConfig,
     onWaitingForCreator,
     onAIQueryResponse,
+    onTurnTimeUpdate,
+    onMessageError,
     socketId,
+    roomId,
   ]);
 
   useEffect(() => {
@@ -214,13 +238,36 @@ export default function Chat({
       socketId,
       roomId,
       username,
+      currentSpeaker: roomInfo?.currentSpeaker,
+      isMyTurn: roomInfo?.currentSpeaker === username,
     });
-    if (newMessage.trim() && connected && !isDebateEnded) {
+
+    // Check if it's the user's turn
+    if (
+      roomInfo?.conversationStarted &&
+      roomInfo?.currentSpeaker !== username
+    ) {
+      setErrorMessage(
+        `No es tu turno. Es el turno de ${roomInfo.currentSpeaker}.`
+      );
+      return;
+    }
+
+    if (
+      newMessage.trim() &&
+      connected &&
+      !isDebateEnded &&
+      roomInfo?.conversationStarted
+    ) {
       sendMessage(roomId, newMessage.trim(), username);
       setNewMessage("");
       setErrorMessage(""); // Clear any previous error messages
     }
   };
+
+  // Check if it's the current user's turn
+  const isMyTurn =
+    roomInfo?.conversationStarted && roomInfo?.currentSpeaker === username;
 
   const handleSideChatSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -287,6 +334,13 @@ export default function Chat({
       setShowMocionModal(false);
       setMocionText("");
       setSelectedMocionMessage(null);
+    }
+  };
+
+  const handleStartConversation = () => {
+    if (startConversation && connected) {
+      console.log("🚀 Starting conversation:", { roomId, username });
+      startConversation(roomId, username);
     }
   };
 
@@ -375,19 +429,55 @@ export default function Chat({
                     AI Moderator Active
                   </span>
                 </div>
+                {roomInfo?.currentSpeaker && (
+                  <>
+                    <span className="text-xs text-gray-500 dark:text-slate-500">
+                      •
+                    </span>
+                    <div className="flex items-center">
+                      <span className="text-xs text-gray-600 dark:text-slate-400">
+                        Turno: <strong>{roomInfo.currentSpeaker}</strong>
+                      </span>
+                      {timeLeft !== null && (
+                        <span
+                          className={`ml-2 text-xs font-mono font-semibold ${
+                            timeLeft <= 10
+                              ? "text-red-600 dark:text-red-400"
+                              : timeLeft <= 20
+                              ? "text-orange-600 dark:text-orange-400"
+                              : "text-green-600 dark:text-green-400"
+                          }`}
+                        >
+                          {timeLeft}s
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setShowSideChat(!showSideChat)}
-                className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-colors border border-blue-300 dark:border-blue-700 text-sm"
-              >
-                {showSideChat ? "💬 Hide AI Chat" : "🤖 Ask AI"}
-              </button>
-              <span className="text-sm text-gray-600 dark:text-slate-400">
-                {connectionStatus}
-              </span>
-              <div className="w-3 h-3 rounded-full bg-gray-300 dark:bg-slate-600"></div>
+            <div className="flex items-center space-x-4">
+              {/* Profile Section */}
+              <div className="flex items-center space-x-2 px-3 py-1.5 bg-gray-100 dark:bg-slate-700 rounded-lg">
+                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
+                  {username.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-sm font-medium text-gray-700 dark:text-slate-200">
+                  {username}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowSideChat(!showSideChat)}
+                  className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-colors border border-blue-300 dark:border-blue-700 text-sm"
+                >
+                  {showSideChat ? "💬 Hide AI Chat" : "🤖 Ask AI"}
+                </button>
+                <span className="text-sm text-gray-600 dark:text-slate-400">
+                  {connectionStatus}
+                </span>
+                <div className="w-3 h-3 rounded-full bg-gray-300 dark:bg-slate-600"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -417,6 +507,47 @@ export default function Chat({
               <p className="text-sm mt-1">
                 Time&apos;s up! The discussion has concluded.
               </p>
+            </div>
+          ) : !roomInfo?.conversationStarted ? (
+            <div className="text-center text-gray-500 dark:text-slate-400 mt-8">
+              <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg
+                  className="w-8 h-8 text-blue-500 dark:text-blue-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <p className="text-lg font-medium">Ready to start?</p>
+              <p className="text-sm mt-1 mb-4">
+                {roomInfo && roomInfo.participants.length > 0
+                  ? `Waiting for ${roomInfo.participants.length} participant${
+                      roomInfo.participants.length !== 1 ? "s" : ""
+                    } to join...`
+                  : "Waiting for participants..."}
+              </p>
+              <button
+                onClick={handleStartConversation}
+                disabled={
+                  !connected || !roomInfo || roomInfo.participants.length === 0
+                }
+                className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-slate-600 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:cursor-not-allowed shadow-sm"
+              >
+                🚀 Start Conversation
+              </button>
             </div>
           ) : messages.length === 0 ? (
             <div className="text-center text-gray-500 dark:text-slate-400 mt-8">
@@ -467,15 +598,37 @@ export default function Chat({
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder={
-                isDebateEnded ? "Debate has ended" : "Type your message..."
+                !roomInfo?.conversationStarted
+                  ? "Wait for conversation to start..."
+                  : !isMyTurn
+                  ? `No es tu turno. Es el turno de ${roomInfo?.currentSpeaker}.`
+                  : isDebateEnded
+                  ? "Debate has ended"
+                  : "Type your message..."
               }
               className="flex-1 border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
-              disabled={!connected || isDebateEnded}
+              disabled={
+                !connected ||
+                isDebateEnded ||
+                !roomInfo?.conversationStarted ||
+                !isMyTurn
+              }
             />
             <button
               type="submit"
-              disabled={!connected || !newMessage.trim() || isDebateEnded}
+              disabled={
+                !connected ||
+                !newMessage.trim() ||
+                isDebateEnded ||
+                !roomInfo?.conversationStarted ||
+                !isMyTurn
+              }
               className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+              title={
+                !isMyTurn && roomInfo?.conversationStarted
+                  ? `No es tu turno. Es el turno de ${roomInfo.currentSpeaker}.`
+                  : undefined
+              }
             >
               Send
             </button>

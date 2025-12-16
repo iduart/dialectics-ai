@@ -16,6 +16,9 @@ export interface Message {
 
 export interface RoomInfo {
   participants: Array<{ socketId: string; username: string }>;
+  currentTurn?: number;
+  currentSpeaker?: string;
+  conversationStarted?: boolean;
 }
 
 export const useSocket = () => {
@@ -160,6 +163,28 @@ export const useSocket = () => {
     [socket]
   );
 
+  const startConversation = useCallback(
+    (roomId: string, username: string) => {
+      console.log("🚀 Starting conversation:", {
+        roomId,
+        username,
+        socketId: socket?.id,
+        socketConnected: socket?.connected,
+      });
+      if (socket) {
+        console.log("📤 Emitting start-conversation event with data:", {
+          roomId,
+          username,
+        });
+        socket.emit("start-conversation", { roomId, username });
+        console.log("✅ start-conversation event sent successfully");
+      } else {
+        console.log("🔴 No socket available for starting conversation");
+      }
+    },
+    [socket]
+  );
+
   const onReceiveMessage = useCallback(
     (callback: (message: Message) => void) => {
       if (socket) {
@@ -265,6 +290,28 @@ export const useSocket = () => {
     [socket]
   );
 
+  const onTurnTimeUpdate = useCallback(
+    (callback: (data: { timeLeft: number; roomId: string }) => void) => {
+      if (socket) {
+        socket.on("turn-time-update", callback);
+        return () => socket.off("turn-time-update", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
+  const onMessageError = useCallback(
+    (callback: (data: { message: string }) => void) => {
+      if (socket) {
+        socket.on("message-error", callback);
+        return () => socket.off("message-error", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
   return {
     socket,
     connected,
@@ -272,6 +319,7 @@ export const useSocket = () => {
     sendMessage,
     queryAI,
     submitMocion,
+    startConversation,
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,
@@ -281,5 +329,7 @@ export const useSocket = () => {
     onRoomConfig,
     onWaitingForCreator,
     onAIQueryResponse,
+    onTurnTimeUpdate,
+    onMessageError,
   };
 };

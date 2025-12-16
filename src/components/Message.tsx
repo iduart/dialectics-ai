@@ -9,7 +9,11 @@ interface MessageProps {
   onMocionClick?: (message: MessageType) => void;
 }
 
-export default function Message({ message, isOwn, onMocionClick }: MessageProps) {
+export default function Message({
+  message,
+  isOwn,
+  onMocionClick,
+}: MessageProps) {
   const isAIModerator = message.isAIModerator;
 
   // Debug: Log the alignment info
