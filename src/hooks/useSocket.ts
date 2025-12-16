@@ -12,6 +12,7 @@ export interface Message {
   socketId: string;
   isAIModerator?: boolean;
   reason?: string;
+  promptName?: string;
 }
 
 export interface RoomInfo {

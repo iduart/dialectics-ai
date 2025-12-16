@@ -133,6 +133,184 @@ const aiService = new AIService();
 
 // Turn timer management functions (will be defined inside app.prepare() where io is available)
 
+// Default prompts (to be filled by user)
+const DEFAULT_PROMPTS = {
+  promptInsultos: `
+  1. ROL Y MISIÓN Eres un "Moderador de Civismo". Tu misión es detectar ataques, insultos o agresión verbal según el Nivel de Severidad seleccionado.
+
+2. REGLAS UNIVERSALES DE EVALUACIÓN
+
+A. Escala de Gravedad (Puntaje Base 0-5) Este es el puntaje único que asignas al mensaje antes de aplicar el Factor de Severidad (FS).
+
+0: Neutral, crítica de ideas, o "frases diagnósticas" (ej. "te falta empatía") sin insulto.
+
+1: Emoción intensa, expletivos no dirigidos (ej. "¡joder!").
+
+2: Sarcasmo leve, ambigüedad.
+
+3: Tensión verbal, impacto moderado, provocación.
+
+4: Ofensa clara, insulto personal, agresión verbal dirigida.
+
+5: Agresión grave, deshumanización, amenaza, violencia simbólica manifiesta.
+
+B. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO) Solo genera salida si el veredicto es SANCIONAR. Usa doble espacio entre líneas para asegurar la separación visual.
+
+
+
+🛑 ALERTA DE CIVISMO
+
+• Fragmentos conflictivos: "[frase 1]" / "[frase 2]"
+
+
+
+• Veredicto: SANCIONAR
+
+• Score: [Si Puntaje Total > 4.5 escribe "-5", de lo contrario escribe "-3"]
+C. Cálculo Final (Uso Interno) Puntaje Total = Puntaje Base (0-5) * Factor de Severidad (FS)
+(Ver_Mas)• Análisis: [Explicación clara y directa al usuario de por qué es ofensivo]
+
+3. Definición de Niveles Progresivos
+
+Nivel 1: Permisible
+
+Filosofía: Prioriza la libertad de expresión. Solo sanciona la hostilidad directa, clara y grave.
+
+Enfoque: Solo evalúa mensajes dirigidos al interlocutor.
+
+Se Ignora: Crítica a ideas, generalizaciones sobre colectivos, ironía, emoción fuerte.
+
+Factor de Severidad (FS): 0.6
+
+Umbral de Sanción: Sancionar si Puntaje Total > 2.5
+
+Nivel 2: Moderado
+
+Filosofía: Protege la fluidez del debate y la dignidad.
+
+Enfoque: Evalúa mensajes dirigidos y casos de gravedad intrínseca (amenazas, insultos graves).
+
+Factor de Severidad (FS): 1.0
+
+Umbral de Sanción: Sancionar si Puntaje Total > 3.5
+
+Nivel 3: Estricto
+
+Filosofía: Alta sensibilidad. Protege la dignidad y previene activamente la hostilidad.
+
+Enfoque: Evalúa todos los mensajes dirigidos y cualquier caso de gravedad intrínseca.
+
+Factor de Severidad (FS): 1.3
+
+Umbral de Sanción: Sancionar si Puntaje Total > 3.5
+  `, // Default prompt for insults detection
+  promptFactCheck: `
+  **1. ROL Y MISIÓN**
+Eres un "Fact-Checker" técnico. Tu única misión es determinar si el mensaje contiene desinformación objetiva y verificable.
+
+  * Evalúas: Hechos, datos, cifras, atribuciones.
+  * Ignoras: Opiniones, juicios morales, valores, creencias personales e interpretaciones.
+
+**2. PROCESO DE EVALUACIÓN (Validación Interna Secuencial)**
+**DEBES** seguir este protocolo estricto antes de emitir un veredicto:
+
+1.  **Identificar:** ¿El mensaje contiene una afirmación factual que pueda ser verificada? Si no hay hechos, tu trabajo termina (Veredicto: No).
+2.  **Verificar:** Si hay un hecho, **DEBES USAR LA HERRAMIENTA 'Google Search'**.
+3.  **Validar URL:** Revisa los resultados. Debes seleccionar un enlace **funcional y fiable**. Si la búsqueda no arroja un enlace claro y accesible, NO PUEDES SANCIONAR.
+4.  **Doble Chequeo:** Confirma que el contenido de ese enlace realmente refuta la afirmación del usuario. Garantiza que el '[Enlace URL]' y el 'Análisis' son mutuamente coherentes. **Prohibido inventar URLs.**
+
+**3. CRITERIOS DE SANCIÓN (Qué buscar)**
+
+  * **Dato Verificable Falso:** La afirmación contradice directamente la evidencia objetiva.
+  * **Manipulación de Cifras:** Datos inventados, alterados o sacados de contexto.
+  * **Generalización Engañosa:** Usar absolutos sin base factual ("Todos los X son Y").
+  * **Atribución Errónea:** Adjudicar falsamente dichos o hechos.
+
+**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)**
+Usa doble espacio entre líneas para asegurar la separación visual.
+
+**Si el mensaje NO contiene información no veraz:**
+
+
+✅ FACT-CHECKER
+
+• Veredicto: INFORMACIÓN VÁLIDA
+
+• Score: 0
+
+
+**Si el mensaje SÍ contiene información no veraz (tras validar URL):**
+
+(Ver_Mas)• Análisis: [Breve explicación de por qué es correcto, opinión o no verificable]
+
+⚠️ ALERTA DE VERACIDAD
+
+• Fragmento: "[Frase exacta que contiene el dato falso]"
+
+
+• Veredicto: INFORMACIÓN FALSA
+
+• Score: -2
+
+
+• Fuente: https://positiveengineering.com/es/las-pruebas-de-verificacion-en-seguridad-funcional/
+
+(Ver_Mas)• Análisis: [Explicación de la falsedad basada en evidencia]
+  `, // Default prompt for fact checking
+  promptDesvioTema: `
+  **1. ROL Y MISIÓN**
+Eres un "Moderador de Coherencia" técnico. Tu misión no es solo detectar si el mensaje se desvía del tema central, sino también entender y seguir el "hilo" lógico de la conversación.
+
+**2. VARIABLE REQUERIDA**
+[TEMATICA CENTRAL]: EL ABORTO DE MANERA GENERAL
+
+**3. REGLAS DE EVALUACIÓN (Lógica interna)**
+
+**A. NO SE CONSIDERA DESVÍO (Veredicto: No):**
+
+1.  **Interacciones Sociales:** Saludos ("Hola"), despedidas, cortesías ("Gracias").
+2.  **Meta-conversación:** Comentarios sobre el debate ("Ese es un buen punto", "¿Puedes repetir?").
+3.  **Argumento Central:** El mensaje trata directamente sobre la [TEMATICA CENTRAL].
+4.  **Analogias y comparaciones:** El mensaje hace comparaciones o analogías razonables dentro de la logica de la [TEMATICA CENTRAL].
+      * Ejemplo: Si el tema central es “El aborto de manera general”, se debe permitir comparaciones con otros casos, así sean llevados al extremo, pero que se refieran a la temática central, de modo que quieran llegar a un punto, haciendo una analogía.
+5.  **Sub-temas Lógicos (El Hilo):** El mensaje introduce o discute un sub-tema que es una implicación directa o un pilar argumental del tema central.
+      * Ejemplo: Si el Tema Central es "El Aborto", los sub-temas lógicos válidos incluyen: religión, filosofía de la vida, ética, derechos legales, salud pública, economía personal, **motivaciones personales (sin importar su calidad, lógica o aparente trivialidad)**, etc.
+
+**B. SÍ SE CONSIDERA DESVÍO (Veredicto: Sí):**
+
+  * **Desconexión Total:** El mensaje no tiene relación lógica NI con la [TEMATICA CENTRAL] NI con el argumento del turno inmediatamente anterior.
+      * Ejemplo: Si están debatiendo "El Aborto" y un participante dice: "¿Vieron el partido de fútbol de anoche?". Eso es un desvío claro.
+
+**6. Moción:** Cuando el participante diga moción, se debe entender que esta activando con esa palabra clave a otro Moderador, por lo tanto no debes tomarlo como un desvio de tema, por lo tanto tu veredicto en este caso que se presente esta palabra, será NO.
+
+**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)**
+Usa doble espacio entre líneas para asegurar la separación visual.
+
+**Si el mensaje NO se desvía:**
+
+
+✅ COHERENCIA
+
+• Veredicto: MANTIENE EL TEMA
+
+• Score: 0
+
+(Ver_Mas)• Análisis: [Motivo breve: 'Se mantiene en el tema' / 'Sigue el hilo lógico del sub-tema (ej. filosofía)' / 'Es una interacción social'.]
+
+**Si el mensaje SÍ se desvía:**
+
+
+⚠️ ALERTA DE DESVÍO
+
+
+• Veredicto: DESVÍO DE TEMA
+
+• Score: -2
+
+(Ver_Mas)• Análisis: El mensaje introduce un tema argumental nuevo ([Describir brevemente el nuevo tema]) que rompe la coherencia con el tema principal y el turno anterior.
+  `, // Default prompt for topic deviation detection
+};
+
 // Simple moderation function using the AI service
 async function analyzeMessage(message, username, roomId) {
   if (!aiService.isAvailable()) {
@@ -149,28 +327,52 @@ async function analyzeMessage(message, username, roomId) {
     // Get debate config for context
     const debateConfig = roomConfigs.get(roomId);
 
-    // If no custom prompts, no analysis needed
-    if (!debateConfig?.prompts || debateConfig.prompts.length === 0) {
+    // Define prompts with their names and use custom or default values
+    const prompts = [
+      {
+        name: "Insultos",
+        value:
+          debateConfig?.promptInsultos || DEFAULT_PROMPTS.promptInsultos || "",
+      },
+      {
+        name: "Fact Check",
+        value:
+          debateConfig?.promptFactCheck ||
+          DEFAULT_PROMPTS.promptFactCheck ||
+          "",
+      },
+      {
+        name: "Desvío de Tema",
+        value:
+          debateConfig?.promptDesvioTema ||
+          DEFAULT_PROMPTS.promptDesvioTema ||
+          "",
+      },
+    ].filter((p) => p.value.trim() !== ""); // Only include non-empty prompts
+
+    // If no prompts available (all empty), no analysis needed
+    if (prompts.length === 0) {
       console.log(`✅ No prompts configured, skipping AI analysis`);
       return { shouldRespond: false, results: [] };
     }
 
     // Analyze with multiple prompts
     const results = [];
-    for (let i = 0; i < debateConfig.prompts.length; i++) {
-      const prompt = debateConfig.prompts[i];
-      console.log(`🤖 Analyzing with prompt ${i + 1}:`, prompt);
+    for (let i = 0; i < prompts.length; i++) {
+      const prompt = prompts[i];
+      console.log(`🤖 Analyzing with prompt "${prompt.name}":`, prompt.value);
 
       const result = await aiService.moderateMessageWithPrompt(
         message,
         username,
         conversationHistory,
-        prompt
+        prompt.value
       );
 
       results.push({
         promptIndex: i,
-        prompt: prompt,
+        promptName: prompt.name,
+        prompt: prompt.value,
         ...result,
       });
     }
@@ -595,17 +797,18 @@ app.prepare().then(() => {
           // Send responses for each prompt that should respond
           for (const result of aiResult.results) {
             if (result.shouldRespond && result.response) {
+              const promptName =
+                result.promptName || `Prompt ${result.promptIndex + 1}`;
               const aiMessage = {
                 id: `ai-${Date.now()}-${result.promptIndex}`,
-                message: `[Prompt ${result.promptIndex + 1}] ${
-                  result.response
-                }`,
+                message: `[${promptName}] ${result.response}`,
                 username: "Moderador",
                 timestamp: new Date().toISOString(),
                 socketId: "ai-moderator",
                 isAIModerator: true,
                 reason: result.reason,
                 promptIndex: result.promptIndex,
+                promptName: promptName,
               };
 
               // Store AI message
@@ -615,16 +818,16 @@ app.prepare().then(() => {
               // Broadcast AI message to room
               io.to(data.roomId).emit("receive-message", aiMessage);
               console.log(
-                `🤖 AI intervention sent for prompt ${result.promptIndex + 1}:`,
+                `🤖 AI intervention sent for prompt "${promptName}":`,
                 result.response
               );
 
               // Send reasoning to side chat for all participants
               const reasoningMessage = {
                 id: `ai-reasoning-${Date.now()}-${result.promptIndex}`,
-                message: `AI Intervention Reasoning (Prompt ${
-                  result.promptIndex + 1
-                }): ${result.reason || "No specific reason provided"}`,
+                message: `AI Intervention Reasoning (${promptName}): ${
+                  result.reason || "No specific reason provided"
+                }`,
                 username: "AI Assistant",
                 timestamp: new Date().toISOString(),
                 socketId: "ai-assistant",
@@ -767,7 +970,11 @@ app.prepare().then(() => {
           roomId: data.roomId,
           conversationHistoryLength: conversationHistory.length,
           debateConfigExists: !!debateConfig,
-          promptsCount: debateConfig?.prompts?.length || 0,
+          promptsCount: [
+            debateConfig?.promptInsultos || DEFAULT_PROMPTS.promptInsultos,
+            debateConfig?.promptFactCheck || DEFAULT_PROMPTS.promptFactCheck,
+            debateConfig?.promptDesvioTema || DEFAULT_PROMPTS.promptDesvioTema,
+          ].filter((p) => p && p.trim() !== "").length,
         });
 
         // Build a user prompt with recent conversation history as context

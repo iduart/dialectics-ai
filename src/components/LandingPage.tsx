@@ -15,14 +15,10 @@ interface LandingPageProps {
 
 export default function LandingPage({ onJoinRoom }: LandingPageProps) {
   const [toleranceLevel] = useState("1");
-  const [prompts, setPrompts] = useState<string[]>(["", "", "", "", "", ""]);
+  const [promptInsultos, setPromptInsultos] = useState("");
+  const [promptFactCheck, setPromptFactCheck] = useState("");
+  const [promptDesvioTema, setPromptDesvioTema] = useState("");
   const [mocionPrompt, setMocionPrompt] = useState("");
-
-  const handlePromptChange = (index: number, value: string) => {
-    const newPrompts = [...prompts];
-    newPrompts[index] = value;
-    setPrompts(newPrompts);
-  };
 
   const handleCreateRoom = (username: string) => {
     if (username.trim()) {
@@ -31,7 +27,9 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
         description: "Custom debate room",
         toleranceLevel: toleranceLevel,
         duration: "30",
-        prompts: prompts.filter((prompt) => prompt.trim() !== ""),
+        promptInsultos: promptInsultos.trim() || undefined,
+        promptFactCheck: promptFactCheck.trim() || undefined,
+        promptDesvioTema: promptDesvioTema.trim() || undefined,
         mocionPrompt: mocionPrompt.trim() || undefined,
       };
       onJoinRoom(newRoomId, username, debateConfig);
@@ -40,34 +38,69 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
 
   const createContent = (username: string) => (
     <>
-      {/* Multiple AI Prompts */}
+      {/* AI Analysis Prompts */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">
           AI Analysis Prompts (Optional)
         </label>
         <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">
-          Add up to 6 custom prompts for AI analysis. Each message will be
-          evaluated against all provided prompts.
+          Customize prompts for AI analysis. Each message will be evaluated
+          against all prompts. Leave blank to use default values.
         </p>
 
-        {prompts.map((prompt, index) => (
-          <div key={index} className="mb-4">
-            <label
-              htmlFor={`prompt-${index}`}
-              className="block text-sm font-medium text-gray-600 dark:text-slate-400 mb-2"
-            >
-              Prompt {index + 1}
-            </label>
-            <textarea
-              id={`prompt-${index}`}
-              value={prompt}
-              onChange={(e) => handlePromptChange(index, e.target.value)}
-              placeholder={`Enter prompt ${index + 1} for AI analysis...`}
-              rows={6}
-              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm"
-            />
-          </div>
-        ))}
+        {/* Prompt de Insultos */}
+        <div className="mb-4">
+          <label
+            htmlFor="prompt-insultos"
+            className="block text-sm font-medium text-gray-600 dark:text-slate-400 mb-2"
+          >
+            Prompt de Insultos
+          </label>
+          <textarea
+            id="prompt-insultos"
+            value={promptInsultos}
+            onChange={(e) => setPromptInsultos(e.target.value)}
+            placeholder="Enter custom prompt for insults detection (optional)..."
+            rows={6}
+            className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm"
+          />
+        </div>
+
+        {/* Prompt de Fact Check */}
+        <div className="mb-4">
+          <label
+            htmlFor="prompt-fact-check"
+            className="block text-sm font-medium text-gray-600 dark:text-slate-400 mb-2"
+          >
+            Prompt de Fact Check
+          </label>
+          <textarea
+            id="prompt-fact-check"
+            value={promptFactCheck}
+            onChange={(e) => setPromptFactCheck(e.target.value)}
+            placeholder="Enter custom prompt for fact checking (optional)..."
+            rows={6}
+            className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm"
+          />
+        </div>
+
+        {/* Prompt de Desvío de Tema */}
+        <div className="mb-4">
+          <label
+            htmlFor="prompt-desvio-tema"
+            className="block text-sm font-medium text-gray-600 dark:text-slate-400 mb-2"
+          >
+            Prompt de Desvío de Tema
+          </label>
+          <textarea
+            id="prompt-desvio-tema"
+            value={promptDesvioTema}
+            onChange={(e) => setPromptDesvioTema(e.target.value)}
+            placeholder="Enter custom prompt for topic deviation detection (optional)..."
+            rows={6}
+            className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm"
+          />
+        </div>
       </div>
 
       {/* Mocion Prompt */}

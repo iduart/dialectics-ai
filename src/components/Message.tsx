@@ -47,7 +47,7 @@ export default function Message({
                 addSuffix: true,
               })}
             </div>
-            {onMocionClick && (
+            {onMocionClick && message.promptName === "Desvío de Tema" && (
               <button
                 onClick={() => onMocionClick(message)}
                 className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
