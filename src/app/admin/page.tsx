@@ -2,11 +2,11 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import UserLandingPage from "@/components/UserLandingPage";
+import LandingPage from "@/components/LandingPage";
 import Chat from "@/components/Chat";
 import { DebateConfig } from "@/types";
 
-function HomeContent() {
+function AdminContent() {
   const [roomId, setRoomId] = useState<string>("");
   const [username, setUsername] = useState<string>("");
   const [debateConfig, setDebateConfig] = useState<DebateConfig | null>(null);
@@ -38,10 +38,10 @@ function HomeContent() {
     );
   }
 
-  return <UserLandingPage onJoinRoom={handleJoinRoom} />;
+  return <LandingPage onJoinRoom={handleJoinRoom} />;
 }
 
-export default function Home() {
+export default function AdminPage() {
   return (
     <Suspense
       fallback={
@@ -53,7 +53,8 @@ export default function Home() {
         </div>
       }
     >
-      <HomeContent />
+      <AdminContent />
     </Suspense>
   );
 }
+
