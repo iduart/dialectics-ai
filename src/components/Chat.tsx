@@ -36,7 +36,9 @@ export default function Chat({
     useState<MessageType | null>(null);
   const [mocionText, setMocionText] = useState("");
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sidePanelEndRef = useRef<HTMLDivElement>(null);
 
   // Debate total duration: remaining seconds (Infinity = sin límite)
   const debateRemainingSeconds =
@@ -234,9 +236,26 @@ export default function Chat({
     scrollToBottom();
   }, [messages]);
 
+  useEffect(() => {
+    if (sidePanelOpen) {
+      sidePanelEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [sidePanelOpen, messages]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  // Main chat: participants + only the one moderator message marked showInMainChat (first sanction per turn).
+  // Legacy: moderator messages without showInMainChat are shown so old history still displays.
+  const mainChatMessages = messages.filter(
+    (m) =>
+      !m.isAIModerator ||
+      m.showInMainChat === true ||
+      (m.isAIModerator &&
+        m.showInMainChat === undefined &&
+        m.isSanction !== false)
+  );
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -348,7 +367,7 @@ export default function Chat({
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-slate-900">
       {/* Main Chat Area */}
-      <div className="flex flex-col w-full">
+      <div className="flex flex-col flex-1 min-w-0">
         {/* Header */}
         <div className="bg-white dark:bg-slate-800 shadow-sm border-b border-gray-200 dark:border-slate-700 px-6 py-4">
           <div className="flex justify-between items-center">
@@ -442,6 +461,38 @@ export default function Chat({
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              {/* Toggle side panel (full log) */}
+              <button
+                type="button"
+                onClick={() => setSidePanelOpen((o) => !o)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+                  sidePanelOpen
+                    ? "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200"
+                    : "bg-gray-100 dark:bg-slate-700 border-gray-200 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:bg-gray-200 dark:hover:bg-slate-600"
+                }`}
+                title={
+                  sidePanelOpen
+                    ? "Cerrar log completo"
+                    : "Abrir log completo (todos los mensajes)"
+                }
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+                <span className="text-sm font-medium hidden sm:inline">
+                  {sidePanelOpen ? "Cerrar log" : "Log completo"}
+                </span>
+              </button>
               {/* Profile Section */}
               <div className="flex items-center space-x-2 px-3 py-1.5 bg-gray-100 dark:bg-slate-700 rounded-lg">
                 <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
@@ -460,6 +511,33 @@ export default function Chat({
             </div>
           </div>
         </div>
+
+        {/* Scoreboard - always visible when we have participants */}
+        {roomInfo && roomInfo.participants.length > 0 && (
+          <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-6 py-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 mb-2">
+              Tablero de puntos
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {roomInfo.participants.map((p) => (
+                <div
+                  key={p.socketId}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 dark:bg-slate-700 border border-gray-200 dark:border-slate-600"
+                >
+                  <span className="text-sm font-medium text-gray-800 dark:text-slate-200">
+                    {p.username}
+                  </span>
+                  <span className="text-sm font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                    {(roomInfo.participantScores?.[p.username] ?? 0).toFixed(1)}
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-slate-400">
+                    pts
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 bg-gray-50/50 dark:bg-slate-900/50">
@@ -528,7 +606,7 @@ export default function Chat({
                 🚀 Start Conversation
               </button>
             </div>
-          ) : messages.length === 0 ? (
+          ) : mainChatMessages.length === 0 ? (
             <div className="text-center text-gray-500 dark:text-slate-400 mt-8">
               <div className="w-16 h-16 bg-gray-200 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg
@@ -550,7 +628,7 @@ export default function Chat({
             </div>
           ) : (
             <div className="space-y-1">
-              {messages.map((message) => {
+              {mainChatMessages.map((message) => {
                 const isOwn = message.socketId === socketId;
                 console.log(
                   `Chat: Message from ${message.username}, message.socketId: "${message.socketId}", current socketId: "${socketId}", isOwn: ${isOwn}`
@@ -622,6 +700,57 @@ export default function Chat({
           )}
         </div>
       </div>
+
+      {/* Right side panel: full log (all messages including moderator) */}
+      {sidePanelOpen && (
+        <div className="flex flex-col w-full max-w-md min-w-[320px] border-l border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700">
+            <h2 className="text-sm font-semibold text-gray-800 dark:text-slate-100">
+              Log completo
+            </h2>
+            <button
+              type="button"
+              onClick={() => setSidePanelOpen(false)}
+              className="p-2 rounded-lg text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+              title="Cerrar panel"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
+            {messages.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-slate-400 py-4 text-center">
+                Sin mensajes aún
+              </p>
+            ) : (
+              messages.map((message) => {
+                const isOwn = message.socketId === socketId;
+                return (
+                  <Message
+                    key={message.id}
+                    message={message}
+                    isOwn={isOwn}
+                    onMocionClick={handleMocionClick}
+                  />
+                );
+              })
+            )}
+            <div ref={sidePanelEndRef} />
+          </div>
+        </div>
+      )}
 
       {/* Extend debate modal (5 min before end) */}
       {showExtendModal && (

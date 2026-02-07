@@ -113,7 +113,8 @@ class AIService {
     username,
     conversationHistory = [],
     customPrompt,
-    initialArgumentsContext = ""
+    initialArgumentsContext = "",
+    debateTopicContext = ""
   ) {
     // console.log("🤖 Using custom prompt:", customPrompt);
 
@@ -127,6 +128,8 @@ class AIService {
     }
 
     const userPrompt = `${
+      debateTopicContext ? debateTopicContext + "\n\n" : ""
+    }${
       initialArgumentsContext ? initialArgumentsContext + "\n\n" : ""
     }${username}: ${message}${conversationContext}`;
 
@@ -151,6 +154,42 @@ class AIService {
       console.error("AI Moderation error for custom prompt:", error);
       console.error("Failed to parse response:", response);
       return { shouldRespond: false };
+    }
+  }
+
+  // Extract a single number (positive points 0–5) from the puntos positivos evaluation text
+  async extractPointsNumber(evaluationText) {
+    if (!this.isAvailable() || !evaluationText?.trim()) return 0;
+    const systemPrompt = `You are a strict number extractor. You will receive an evaluation of a debate intervention that includes a "Score" or "Puntaje" (positive points). Reply with ONLY a single number: the points earned (0 to 5, decimal allowed, e.g. 1.5 or 2.0). No explanation, no other text. If no clear score is found, reply 0.`;
+    const userPrompt = `Evaluation:\n${evaluationText.trim()}\n\nReply with only the number (points):`;
+    try {
+      const response = await this.callAI(systemPrompt, userPrompt);
+      const trimmed = (response || "").trim();
+      const num = parseFloat(trimmed.replace(/[^\d.]/g, ""), 10);
+      const points = Number.isFinite(num) ? Math.max(0, Math.min(5, num)) : 0;
+      console.log("🤖 Extracted points from evaluation:", points);
+      return points;
+    } catch (error) {
+      console.error("AI extractPointsNumber error:", error);
+      return 0;
+    }
+  }
+
+  // Extract the negative score (e.g. -3, -5) from a sanction/moderation response
+  async extractNegativeScore(sanctionResponse) {
+    if (!this.isAvailable() || !sanctionResponse?.trim()) return 0;
+    const systemPrompt = `You are a strict number extractor. You will receive a moderator sanction message that may include a "Score" (negative points, e.g. Score: -3 or Score: -5). Reply with ONLY a single number: the negative score as a negative number (e.g. -3 or -5). No explanation. If no negative score is found, reply 0.`;
+    const userPrompt = `Sanction message:\n${sanctionResponse.trim()}\n\nReply with only the negative score number (e.g. -3):`;
+    try {
+      const response = await this.callAI(systemPrompt, userPrompt);
+      const trimmed = (response || "").trim();
+      const num = parseFloat(trimmed.replace(/[^\d.-]/g, ""), 10);
+      const score = Number.isFinite(num) ? Math.min(0, Math.max(-10, num)) : 0;
+      console.log("🤖 Extracted negative score from sanction:", score);
+      return score;
+    } catch (error) {
+      console.error("AI extractNegativeScore error:", error);
+      return 0;
     }
   }
 }
@@ -255,81 +294,165 @@ Eres un "Fact-Checker" técnico. Tu única misión es determinar si el mensaje c
   * **Generalización Engañosa:** Usar absolutos sin base factual ("Todos los X son Y").
   * **Atribución Errónea:** Adjudicar falsamente dichos o hechos.
 
-**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)** Responde ÚNICAMENTE en Markdown, bien formateado y estético.
+**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)** Tu respuesta debe ser Markdown puro y bien formateado: título (###), bullets con guión (-), etiquetas en **negrita**, y un párrafo **Análisis:**. Prohibido usar bloques de código (\`\`\`) — escribe solo el Markdown para que se renderice en pantalla.
 
-**Si el mensaje NO contiene información no veraz:** responde breve en Markdown, por ejemplo:
-\`\`\`
+**Si el mensaje NO contiene información no veraz**, usa esta plantilla (sustituye solo el Análisis):
+
 ### ✅ Información válida
+
 - **Veredicto:** INFORMACIÓN VÁLIDA
 - **Score:** 0
-\`\`\`
 
-**Si el mensaje SÍ contiene información no veraz (tras validar URL):** usa este formato Markdown. Deja dos líneas en blanco entre el título, la lista y el Análisis:
-\`\`\`
+**Análisis:** [Una frase breve explicando por qué no hay problema con la veracidad.]
+
+**Si el mensaje SÍ contiene información no veraz (tras validar URL)**, usa esta plantilla:
+
 ### ⚠️ Alerta de veracidad
-
 
 - **Fragmento:** "[Frase exacta que contiene el dato falso]"
 - **Veredicto:** INFORMACIÓN FALSA
 - **Score:** -2
-- **Fuente:** [enlace URL funcional y fiable]
-
+- **Fuente:** [Texto descriptivo](URL_funcional)
 
 **Análisis:** [Explicación de la falsedad basada en evidencia. Máximo 2-3 oraciones.]
-\`\`\`
 
-La fuente debe ser un enlace Markdown: [Texto descriptivo](URL). Usa encabezados (###), listas con guiones (-) y **negrita** en etiquetas. No envuelvas la respuesta en bloques de código (triple backticks); escribe solo el Markdown directamente.
+Recuerda: salto de línea después del título; bullets con - y **negrita** en etiquetas; línea en blanco antes de **Análisis:**. Nunca envuelvas la respuesta en \`\`\`.
   `, // Default prompt for fact checking
   promptDesvioTema: `
   **1. ROL Y MISIÓN**
 Eres un "Moderador de Coherencia" técnico. Tu misión no es solo detectar si el mensaje se desvía del tema central, sino también entender y seguir el "hilo" lógico de la conversación.
 
-**2. VARIABLE REQUERIDA**
-[TEMATICA CENTRAL]: EL ABORTO DE MANERA GENERAL
+**2. TEMA CENTRAL (OBLIGATORIO)**
+Al inicio del mensaje del usuario recibirás la línea "Tema del debate (TEMATICA CENTRAL): [tema]". **DEBES usar ÚNICAMENTE ese tema** como referencia para evaluar desvíos. No asumas ni inventes otro tema (p. ej. no uses "el aborto" si no es el tema indicado). Si el mensaje trata sobre el tema indicado o sub-temas relacionados, NO es desvío.
 
-**3. REGLAS DE EVALUACIÓN (Lógica interna)**
+**3. CONTEXTO**
+Recibirás también el historial reciente de la conversación. Tenlo en cuenta: si el mensaje actual sigue el hilo del debate o responde al turno anterior sobre el mismo tema, NO es desvío.
+
+**4. REGLAS DE EVALUACIÓN (Lógica interna)**
 
 **A. NO SE CONSIDERA DESVÍO (Veredicto: No):**
 
 1.  **Interacciones Sociales:** Saludos ("Hola"), despedidas, cortesías ("Gracias").
 2.  **Meta-conversación:** Comentarios sobre el debate ("Ese es un buen punto", "¿Puedes repetir?").
-3.  **Argumento Central:** El mensaje trata directamente sobre la [TEMATICA CENTRAL].
-4.  **Analogias y comparaciones:** El mensaje hace comparaciones o analogías razonables dentro de la logica de la [TEMATICA CENTRAL].
-      * Ejemplo: Si el tema central es “El aborto de manera general”, se debe permitir comparaciones con otros casos, así sean llevados al extremo, pero que se refieran a la temática central, de modo que quieran llegar a un punto, haciendo una analogía.
+3.  **Argumento Central:** El mensaje trata directamente sobre la TEMATICA CENTRAL indicada al inicio del mensaje.
+4.  **Analogías y comparaciones:** El mensaje hace comparaciones o analogías razonables dentro de la lógica del tema central.
+      * Ejemplo: Si el tema central es “el tema indicado al inicio del mensaje”, se debe permitir comparaciones con otros casos, así sean llevados al extremo, pero que se refieran a la temática central, de modo que quieran llegar a un punto, haciendo una analogía.
 5.  **Sub-temas Lógicos (El Hilo):** El mensaje introduce o discute un sub-tema que es una implicación directa o un pilar argumental del tema central.
-      * Ejemplo: Si el Tema Central es "El Aborto", los sub-temas lógicos válidos incluyen: religión, filosofía de la vida, ética, derechos legales, salud pública, economía personal, **motivaciones personales (sin importar su calidad, lógica o aparente trivialidad)**, etc.
+      * Ejemplo: Los sub-temas válidos dependen del tema central indicado (ej. si es "celular en clase": enfoque, interrupciones, normas de aula).
 
 **B. SÍ SE CONSIDERA DESVÍO (Veredicto: Sí):**
 
-  * **Desconexión Total:** El mensaje no tiene relación lógica NI con la [TEMATICA CENTRAL] NI con el argumento del turno inmediatamente anterior.
-      * Ejemplo: Si están debatiendo "El Aborto" y un participante dice: "¿Vieron el partido de fútbol de anoche?". Eso es un desvío claro.
+  * **Desconexión Total:** El mensaje no tiene relación lógica NI con la TEMATICA CENTRAL indicada NI con el argumento del turno inmediatamente anterior.
+      * Ejemplo de desvío: tema "uso del celular en clase" y alguien escribe "¿Vieron el partido de fútbol anoche?".
 
 **6. Moción:** Cuando el participante diga moción, se debe entender que esta activando con esa palabra clave a otro Moderador, por lo tanto no debes tomarlo como un desvio de tema, por lo tanto tu veredicto en este caso que se presente esta palabra, será NO.
 
-**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)** Responde ÚNICAMENTE en Markdown, bien formateado y estético.
+**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)** Tu respuesta debe ser Markdown puro y bien formateado: título (###), bullets con guión (-), etiquetas en **negrita**, y un párrafo **Análisis:**. Prohibido usar bloques de código (\`\`\`) — escribe solo el Markdown para que se renderice en pantalla.
 
-**Si el mensaje NO se desvía:** responde breve en Markdown, por ejemplo:
-\`\`\`
+**Si el mensaje NO se desvía**, usa esta plantilla (sustituye solo el Análisis):
+
 ### ✅ Coherencia
+
 - **Veredicto:** MANTIENE EL TEMA
 - **Score:** 0
+
 **Análisis:** [Motivo breve: se mantiene en el tema / sigue el hilo / interacción social.]
-\`\`\`
 
-**Si el mensaje SÍ se desvía:** usa este formato Markdown. Deja dos líneas en blanco entre el título, la lista y el Análisis:
-\`\`\`
+**Si el mensaje SÍ se desvía**, usa esta plantilla:
+
 ### ⚠️ Alerta de desvío
-
 
 - **Veredicto:** DESVÍO DE TEMA
 - **Score:** -2
 
+**Análisis:** [Explicación clara: qué tema introduce el mensaje y por qué rompe la coherencia con el tema principal o el turno anterior. Máximo 2-3 oraciones.]
 
-**Análisis:** El mensaje introduce un tema argumental nuevo ([describir brevemente]) que rompe la coherencia con el tema principal y el turno anterior.
-\`\`\`
-
-Usa encabezados (###), listas con guiones (-) y **negrita** en etiquetas. No envuelvas la respuesta en bloques de código (triple backticks); escribe solo el Markdown directamente.
+Recuerda: salto de línea después del título; bullets con - y **negrita** en etiquetas; línea en blanco antes de **Análisis:**. Nunca envuelvas la respuesta en \`\`\`.
   `, // Default prompt for topic deviation detection
+  promptPuntosPositivos: `
+  **1. ROL Y MISIÓN**
+Eres un "Juez de Debate" experto. Tu misión es evaluar la calidad de la intervención actual. No buscas perfección académica, buscas **efectividad comunicativa y lógica**. Asigna un puntaje positivo (0.0 a 5.0) basado en qué tan bien el participante ejecuta las siguientes habilidades.
+
+**2. CRITERIOS Y EVALUACIÓN (Total Máximo: 5.0)**
+Evalúa cada criterio. Para asignar puntos, la intervención debe cumplir la **Condición de Calidad**. Si cae en el **Factor de Exclusión**, asigna 0 en ese criterio.
+
+**A. NIVEL BÁSICO (Claridad y Forma)**
+
+  * **1. Respuesta Directa y Clara (Máx 0.2):**
+      * *Condición:* Aborda el tema o la pregunta sin rodeos. Se entiende su postura de inmediato.
+      * *Exclusión (0 pts):* Divagar, irse por las ramas o evasivas.
+  * **2. Coherencia y Estructura (Máx 0.3):**
+      * *Condición:* Orden lógico natural. Una idea lleva a la otra fluidamente.
+      * *Exclusión (0 pts):* Ideas desordenadas, "muros de texto" o falta de conectores.
+  * **5. Uso de Analogías (Máx 0.3):**
+      * *Condición:* Usa una comparación ("es como...") que simplifica o visualiza el argumento.
+      * *Exclusión (0 pts):* Analogías forzadas, absurdas o confusas.
+  * **6. Dominio Temático (Máx 0.2):**
+      * *Condición:* Usa los términos técnicos correctos para diferenciar matices.
+      * *Exclusión (0 pts):* Palabras rebuscadas innecesarias o uso erróneo de conceptos.
+
+**B. NIVEL LÓGICO (Argumentación y Datos)**
+
+  * **3. Sustento Factual Sólido (Máx 0.8):**
+      * *Condición:* Menciona datos, leyes, estudios o hechos concretos para apoyar su opinión.
+      * *Exclusión (0 pts):* Datos vagos ("mucha gente"), inventados o generalizaciones.
+  * **4. Causa y Efecto (Máx 0.5):**
+      * *Condición:* Explica el mecanismo de por qué una acción lleva a una consecuencia.
+      * *Exclusión (0 pts):* Saltos lógicos, superstición o correlación sin explicación.
+  * **9. Propuesta Constructiva (Máx 0.6):**
+      * *Condición:* Propone una solución, alternativa o punto medio viable.
+      * *Exclusión (0 pts):* Soluciones utópicas o sarcásticas.
+
+**C. NIVEL ESTRATÉGICO (Interacción y Agudeza)**
+
+  * **7. Preguntas Socráticas (Máx 0.6):**
+      * *Condición:* Pregunta estratégica que fuerza al otro a pensar o revelar una debilidad.
+      * *Exclusión (0 pts):* Preguntas retóricas agresivas o de relleno.
+  * **8. Detección de Contradicciones (Máx 0.7):**
+      * *Condición:* Expone explícitamente una incompatibilidad en el discurso del rival.
+      * *Exclusión (0 pts):* Acusar de contradicción sin demostrarla o atacar errores menores.
+  * **10. Construcción Argumental (Máx 0.8):**
+      * *Condición:* Toma el punto del otro y lo usa para construir una respuesta superior (refutación o integración).
+      * *Exclusión (0 pts):* Monólogos que ignoran lo que dijo el otro.
+
+**3. PROCESO DE CÁLCULO**
+
+1.  Analiza el mensaje buscando estos elementos.
+2.  Si cumple la Condición, asigna un puntaje proporcional a la calidad (0.1 a Máx).
+3.  Si cae en la Exclusión, asigna 0.
+4.  Suma los puntos.
+
+**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)**
+Usa doble espacio entre líneas para asegurar la separación visual.
+
+**Si el Puntaje Final es menor a 0.5:**
+
+
+⚪ PUNTOS POSITIVOS
+
+
+• Veredicto: SIN MÉRITOS DESTACABLES
+
+• Score: 0
+
+(Ver_Mas)• Análisis: Intervención básica o genérica. No supera el umbral de calidad argumentativa.
+
+**Si el Puntaje Final es mayor o igual a 0.5:**
+
+
+🌟 PUNTOS POSITIVOS
+
+• Detalle:
+  - [Nombre Criterio]: +[Puntos ganados]
+  - [Nombre Criterio]: +[Puntos ganados]
+
+
+• Veredicto: INTERVENCIÓN DE CALIDAD
+
+• Score: +[Puntaje Final]
+
+(Ver_Mas)• Análisis: [Comentario breve sobre la mayor fortaleza de la intervención]
+  `,
 };
 
 // Simple moderation function using the AI service
@@ -347,6 +470,11 @@ async function analyzeMessage(message, username, roomId) {
 
     // Get debate config for context
     const debateConfig = roomConfigs.get(roomId);
+
+    // Build debate topic context (for Desvío de Tema and general coherence)
+    const debateTopicContext = debateConfig?.description?.trim()
+      ? `Tema del debate (TEMATICA CENTRAL): ${debateConfig.description.trim()}`
+      : "";
 
     // Build initial arguments context (posturas) from all participants
     const roomData = roomParticipants.get(roomId);
@@ -395,14 +523,27 @@ async function analyzeMessage(message, username, roomId) {
     const results = [];
     for (let i = 0; i < prompts.length; i++) {
       const prompt = prompts[i];
-      //   console.log(`🤖 Analyzing with prompt "${prompt.name}":`, prompt.value);
+      let promptValue = prompt.value;
+      // For Desvío de Tema, inject the actual debate topic into the prompt so the model uses it (not hardcoded examples)
+      if (
+        prompt.name === "Desvío de Tema" &&
+        debateTopicContext &&
+        debateTopicContext.trim() !== ""
+      ) {
+        const topicLine = debateTopicContext.trim();
+        promptValue = `**TEMATICA CENTRAL de este debate (OBLIGATORIO usar solo esta):** ${topicLine.replace(
+          /^Tema del debate \(TEMATICA CENTRAL\):\s*/i,
+          ""
+        )}\n\n${promptValue}`;
+      }
 
       const result = await aiService.moderateMessageWithPrompt(
         message,
         username,
         conversationHistory,
-        prompt.value,
-        initialArgumentsContext
+        promptValue,
+        initialArgumentsContext,
+        debateTopicContext
       );
 
       results.push({
@@ -529,6 +670,7 @@ app.prepare().then(() => {
       conversationStarted: roomData.conversationStarted,
       debateStartTime: roomData.debateStartTime,
       debateEndTime: roomData.debateEndTime,
+      participantScores: roomData.participantScores || {},
     });
 
     // Start timer for new turn
@@ -542,6 +684,8 @@ app.prepare().then(() => {
       timestamp: new Date().toISOString(),
       socketId: "ai-moderator",
       isAIModerator: true,
+      isSanction: true,
+      showInMainChat: true,
     };
 
     // Store timeout message
@@ -660,6 +804,7 @@ app.prepare().then(() => {
         conversationStarted: roomData.conversationStarted || false,
         debateStartTime: roomData.debateStartTime,
         debateEndTime: roomData.debateEndTime,
+        participantScores: roomData.participantScores || {},
       };
 
       console.log("📤 Sending room info to all participants:", {
@@ -833,45 +978,160 @@ app.prepare().then(() => {
           data.roomId
         );
 
-        // Only one sanction per participant message: first result that deserves sanction is sent, then stop
+        // Send every AI prompt response to clients (for full log). Main chat shows only sanctions; side panel shows all.
+        // Only one sanction is applied (score/room-updated) per participant message: the first that deserves sanction.
         if (aiResult.results && aiResult.results.length > 0) {
           const baseId = Date.now();
-          let sanctionSent = false;
+          let sanctionApplied = false;
+          let firstSanctionShownInMain = false;
           for (const result of aiResult.results) {
-            if (sanctionSent) break;
-            if (result.shouldRespond && result.response) {
-              const promptName =
-                result.promptName || `Prompt ${result.promptIndex + 1}`;
-              const deservesSanction = await aiService.shouldSanction(
+            if (!result.shouldRespond || !result.response) continue;
+            const promptName =
+              result.promptName || `Prompt ${result.promptIndex + 1}`;
+            const deservesSanction = await aiService.shouldSanction(
+              result.response
+            );
+            console.log("🤖 Deserves sanction:", deservesSanction);
+            const showInMainChat =
+              deservesSanction && !firstSanctionShownInMain;
+            if (showInMainChat) firstSanctionShownInMain = true;
+            const aiMessage = {
+              id: `ai-${baseId}-${result.promptIndex}`,
+              message: `[${promptName}]\n\n${result.response}`,
+              username: "Moderador",
+              timestamp: new Date().toISOString(),
+              socketId: "ai-moderator",
+              isAIModerator: true,
+              isSanction: deservesSanction,
+              showInMainChat: showInMainChat,
+              reason: result.reason,
+              promptIndex: result.promptIndex,
+              promptName: promptName,
+            };
+            messages.push(aiMessage);
+            messageStore.set(data.roomId, messages);
+            io.to(data.roomId).emit("receive-message", aiMessage);
+            if (deservesSanction) {
+              console.log(
+                `🤖 AI intervention (sanction) for prompt "${promptName}":`,
                 result.response
               );
-              console.log("🤖 Deserves sanction:", deservesSanction);
-              if (deservesSanction) {
-                const aiMessage = {
-                  id: `ai-${baseId}-${result.promptIndex}`,
-                  message: `[${promptName}]\n\n${result.response}`,
-                  username: "Moderador",
-                  timestamp: new Date().toISOString(),
-                  socketId: "ai-moderator",
-                  isAIModerator: true,
-                  reason: result.reason,
-                  promptIndex: result.promptIndex,
-                  promptName: promptName,
-                };
-                messages.push(aiMessage);
-                messageStore.set(data.roomId, messages);
-                io.to(data.roomId).emit("receive-message", aiMessage);
-                sanctionSent = true;
-                console.log(
-                  `🤖 AI intervention (single sanction) for prompt "${promptName}":`,
+            }
+            // Apply sanction score only once per participant message
+            if (deservesSanction && !sanctionApplied) {
+              sanctionApplied = true;
+              try {
+                const negativeScore = await aiService.extractNegativeScore(
                   result.response
                 );
-              } else {
-                console.log(
-                  `🤖 AI response for "${promptName}" did not merit sanction — not sending to chat`
-                );
+                if (negativeScore < 0) {
+                  roomData.participantScores = roomData.participantScores || {};
+                  const prev = roomData.participantScores[data.username] ?? 0;
+                  roomData.participantScores[data.username] =
+                    prev + negativeScore;
+                  roomParticipants.set(data.roomId, roomData);
+                  console.log(
+                    `📉 Sanction score: ${
+                      data.username
+                    } ${negativeScore} (total: ${
+                      roomData.participantScores[data.username]
+                    })`
+                  );
+                  io.to(data.roomId).emit("room-updated", {
+                    participants: roomData.participants,
+                    currentTurn: roomData.currentTurn,
+                    currentSpeaker: roomData.currentSpeaker,
+                    conversationStarted: roomData.conversationStarted,
+                    debateStartTime: roomData.debateStartTime,
+                    debateEndTime: roomData.debateEndTime,
+                    participantScores: roomData.participantScores,
+                  });
+                }
+              } catch (err) {
+                console.error("Extract negative score error:", err);
               }
             }
+          }
+        }
+
+        // Puntos positivos: evaluate message and add score to sender
+        const puntosPrompt =
+          roomConfigs.get(data.roomId)?.promptPuntosPositivos ||
+          DEFAULT_PROMPTS.promptPuntosPositivos ||
+          "";
+        if (
+          roomData?.conversationStarted &&
+          puntosPrompt.trim() !== "" &&
+          aiService.isAvailable()
+        ) {
+          try {
+            roomData.participantScores = roomData.participantScores || {};
+            const conversationHistory = messageStore.get(data.roomId) || [];
+            const debateConfig = roomConfigs.get(data.roomId);
+            const debateTopicContext = debateConfig?.description?.trim()
+              ? `Tema del debate (TEMATICA CENTRAL): ${debateConfig.description.trim()}`
+              : "";
+            let initialArgumentsContext = "";
+            if (roomData.participants?.length) {
+              const lines = roomData.participants
+                .filter(
+                  (p) => p.initialArgument && String(p.initialArgument).trim()
+                )
+                .map((p) => `${p.username}: ${p.initialArgument.trim()}`);
+              if (lines.length) {
+                initialArgumentsContext = `Initial positions / Posturas ante el debate:\n${lines.join(
+                  "\n"
+                )}`;
+              }
+            }
+            const puntosResult = await aiService.moderateMessageWithPrompt(
+              data.message,
+              data.username,
+              conversationHistory,
+              puntosPrompt.trim(),
+              initialArgumentsContext,
+              debateTopicContext
+            );
+            if (puntosResult?.response) {
+              const points = await aiService.extractPointsNumber(
+                puntosResult.response
+              );
+              const prev = roomData.participantScores[data.username] ?? 0;
+              roomData.participantScores[data.username] = prev + points;
+              roomParticipants.set(data.roomId, roomData);
+              console.log(
+                `🌟 Puntos positivos: ${data.username} +${points} (total: ${
+                  roomData.participantScores[data.username]
+                })`
+              );
+              // Emit puntos positivos as moderator message for full log (isSanction: false → main chat hides it)
+              const puntosMessageList = messageStore.get(data.roomId) || [];
+              const puntosAiMessage = {
+                id: `ai-puntos-${Date.now()}`,
+                message: `[Puntos positivos]\n\n${puntosResult.response}`,
+                username: "Moderador",
+                timestamp: new Date().toISOString(),
+                socketId: "ai-moderator",
+                isAIModerator: true,
+                isSanction: false,
+                showInMainChat: false,
+                promptName: "Puntos positivos",
+              };
+              puntosMessageList.push(puntosAiMessage);
+              messageStore.set(data.roomId, puntosMessageList);
+              io.to(data.roomId).emit("receive-message", puntosAiMessage);
+              io.to(data.roomId).emit("room-updated", {
+                participants: roomData.participants,
+                currentTurn: roomData.currentTurn,
+                currentSpeaker: roomData.currentSpeaker,
+                conversationStarted: roomData.conversationStarted,
+                debateStartTime: roomData.debateStartTime,
+                debateEndTime: roomData.debateEndTime,
+                participantScores: roomData.participantScores,
+              });
+            }
+          } catch (err) {
+            console.error("Puntos positivos evaluation error:", err);
           }
         }
 
@@ -907,6 +1167,7 @@ app.prepare().then(() => {
             conversationStarted: roomData.conversationStarted,
             debateStartTime: roomData.debateStartTime,
             debateEndTime: roomData.debateEndTime,
+            participantScores: roomData.participantScores || {},
           });
         }
       }
@@ -957,6 +1218,10 @@ app.prepare().then(() => {
       roomData.debateStartTime = Date.now();
       roomData.debateEndTime =
         durationMinutes === 0 ? null : Date.now() + durationMinutes * 60 * 1000;
+      roomData.participantScores = {};
+      roomData.participants.forEach((p) => {
+        roomData.participantScores[p.username] = 0;
+      });
       roomParticipants.set(data.roomId, roomData);
 
       console.log(
@@ -970,7 +1235,7 @@ app.prepare().then(() => {
       // Start timer for first participant
       startTurnTimer(data.roomId);
 
-      // Emit room update to all participants (include debate times)
+      // Emit room update to all participants (include debate times and scores)
       const roomInfo = {
         participants: roomData.participants,
         currentTurn: roomData.currentTurn,
@@ -978,6 +1243,7 @@ app.prepare().then(() => {
         conversationStarted: roomData.conversationStarted,
         debateStartTime: roomData.debateStartTime,
         debateEndTime: roomData.debateEndTime,
+        participantScores: roomData.participantScores || {},
       };
 
       io.to(data.roomId).emit("room-updated", roomInfo);
@@ -1002,6 +1268,7 @@ app.prepare().then(() => {
         conversationStarted: roomData.conversationStarted,
         debateStartTime: roomData.debateStartTime,
         debateEndTime: roomData.debateEndTime,
+        participantScores: roomData.participantScores || {},
       };
       io.to(roomId).emit("room-updated", roomInfo);
       console.log(
@@ -1095,6 +1362,8 @@ ${debateConfig.mocionPrompt}`;
           timestamp: new Date().toISOString(),
           socketId: "ai-moderator",
           isAIModerator: true,
+          isSanction: true,
+          showInMainChat: true,
         };
 
         messages.push(aiMocionMessage);
@@ -1167,6 +1436,7 @@ ${debateConfig.mocionPrompt}`;
               conversationStarted: roomData.conversationStarted,
               debateStartTime: roomData.debateStartTime,
               debateEndTime: roomData.debateEndTime,
+              participantScores: roomData.participantScores || {},
             };
             io.to(roomId).emit("room-updated", roomInfo);
             io.to(roomId).emit("user-left", { username: participant.username });

@@ -38,8 +38,29 @@ export default function LandingPage({ onJoinRoom }: LandingPageProps) {
     }
   };
 
-  const createContent = (username: string, initialArgument: string) => (
+  const createContent = (
+    username: string,
+    initialArgument: string,
+    setInitialArgument: (value: string) => void
+  ) => (
     <>
+      {/* Postura ante el debate */}
+      <div>
+        <label
+          htmlFor="initialArgument-admin"
+          className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+        >
+          Postura ante el debate
+        </label>
+        <textarea
+          id="initialArgument-admin"
+          value={initialArgument}
+          onChange={(e) => setInitialArgument(e.target.value)}
+          placeholder="Tu argumento o postura inicial en el debate (opcional)"
+          rows={4}
+          className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm"
+        />
+      </div>
       {/* AI Analysis Prompts */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-3">

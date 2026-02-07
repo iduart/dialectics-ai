@@ -11,6 +11,8 @@ export interface Message {
   timestamp: string;
   socketId: string;
   isAIModerator?: boolean;
+  isSanction?: boolean;
+  showInMainChat?: boolean;
   reason?: string;
   promptName?: string;
 }
@@ -22,6 +24,7 @@ export interface RoomInfo {
   conversationStarted?: boolean;
   debateStartTime?: number;
   debateEndTime?: number | null;
+  participantScores?: Record<string, number>;
 }
 
 export const useSocket = () => {

@@ -5,5 +5,6 @@ export interface DebateConfig {
   promptInsultos?: string;
   promptFactCheck?: string;
   promptDesvioTema?: string;
+  promptPuntosPositivos?: string;
   mocionPrompt?: string;
 }

@@ -25,17 +25,17 @@ export default function Message({
 
   if (isAIModerator) {
     return (
-      <div className="flex justify-center mb-4 px-2">
-        <div className="max-w-md px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-700 shadow-sm">
+      <div className="flex justify-center mb-4 px-2 min-w-0 max-w-full">
+        <div className="w-full max-w-md min-w-0 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-700 shadow-sm overflow-hidden">
           <div className="flex items-center mb-2">
-            <div className="w-7 h-7 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center mr-3 shadow-sm">
+            <div className="w-7 h-7 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center mr-3 shadow-sm flex-shrink-0">
               <span className="text-white text-xs font-bold">AI</span>
             </div>
-            <div className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+            <div className="text-sm font-semibold text-amber-800 dark:text-amber-200 min-w-0">
               {message.username}
             </div>
           </div>
-          <div className="text-sm text-amber-900 dark:text-amber-100 mb-2 leading-relaxed [&_a]:text-amber-600 dark:[&_a]:text-amber-400 [&_a]:underline [&_ul]:list-disc [&_ul]:list-inside [&_ol]:list-decimal [&_ol]:list-inside [&_p]:mt-2 [&_p]:mb-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_h3]:text-base [&_h3]:font-bold [&_h3]:mt-3 [&_h3]:mb-2 [&_h3]:first:mt-0">
+          <div className="text-sm text-amber-900 dark:text-amber-100 mb-2 leading-relaxed break-words min-w-0 [&_a]:text-amber-600 dark:[&_a]:text-amber-400 [&_a]:underline [&_ul]:list-disc [&_ul]:list-inside [&_ol]:list-decimal [&_ol]:list-inside [&_p]:mt-2 [&_p]:mb-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_p]:break-words [&_h3]:text-base [&_h3]:font-bold [&_h3]:mt-3 [&_h3]:mb-2 [&_h3]:first:mt-0">
             <ReactMarkdown remarkPlugins={[remarkBreaks]}>
               {message.message}
             </ReactMarkdown>
