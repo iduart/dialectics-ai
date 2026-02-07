@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import UserLandingPage from "@/components/UserLandingPage";
 import Chat from "@/components/Chat";
 import { DebateConfig } from "@/types";
+
+const STORAGE_KEY_PREFIX = "chat_room_";
 
 function HomeContent() {
   const [roomId, setRoomId] = useState<string>("");
@@ -13,12 +15,34 @@ function HomeContent() {
   const [initialArgument, setInitialArgument] = useState<string | undefined>();
   const [isInChat, setIsInChat] = useState(false);
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
 
+  // Restore chat from URL + sessionStorage on load/refresh
   useEffect(() => {
-    // Check if there's a room parameter in the URL
     const roomParam = searchParams.get("room");
-    if (roomParam) {
-      setRoomId(roomParam);
+    if (!roomParam) return;
+    setRoomId(roomParam);
+    try {
+      const stored =
+        typeof window !== "undefined"
+          ? sessionStorage.getItem(STORAGE_KEY_PREFIX + roomParam)
+          : null;
+      if (stored) {
+        const {
+          username: u,
+          debateConfig: c,
+          initialArgument: i,
+        } = JSON.parse(stored);
+        if (u) {
+          setUsername(u);
+          setDebateConfig(c || null);
+          setInitialArgument(i);
+          setIsInChat(true);
+        }
+      }
+    } catch (_) {
+      // invalid or missing stored data, keep on landing (with room pre-filled)
     }
   }, [searchParams]);
 
@@ -33,6 +57,20 @@ function HomeContent() {
     setDebateConfig(debateConfig || null);
     setInitialArgument(initialArgument);
     setIsInChat(true);
+    // Persist room in URL so refresh keeps you in the chat
+    const url = `${pathname || "/"}?room=${encodeURIComponent(roomId)}`;
+    router.replace(url);
+    // Persist session so we can restore on refresh
+    try {
+      sessionStorage.setItem(
+        STORAGE_KEY_PREFIX + roomId,
+        JSON.stringify({
+          username,
+          debateConfig: debateConfig || null,
+          initialArgument: initialArgument ?? undefined,
+        })
+      );
+    } catch (_) {}
   };
 
   if (isInChat) {

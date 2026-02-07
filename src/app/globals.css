@@ -64,6 +64,25 @@ textarea:focus {
   outline: none !important;
 }
 
+/* Points overlay: pop in + fade out. Duración total = 1.8s; el fade out es de 50% a 100% (~0.9s). */
+@keyframes points-pop-in {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  20% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.05);
+    opacity: 0;
+  }
+}
+
 /* Dark mode specific adjustments */
 @media (prefers-color-scheme: dark) {
   input[type="text"]:focus,

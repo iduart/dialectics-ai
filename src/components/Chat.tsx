@@ -37,6 +37,17 @@ export default function Chat({
   const [mocionText, setMocionText] = useState("");
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
+  const [pointsOverlay, setPointsOverlay] = useState<number | null>(null);
+  const [pointsOverlayPhase, setPointsOverlayPhase] = useState<
+    "enter" | "exit"
+  >("enter");
+  const [negativePointsOverlay, setNegativePointsOverlay] = useState<
+    number | null
+  >(null);
+  const [negativePointsOverlayPhase, setNegativePointsOverlayPhase] = useState<
+    "enter" | "exit"
+  >("enter");
+  const prevScoreRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sidePanelEndRef = useRef<HTMLDivElement>(null);
 
@@ -167,8 +178,28 @@ export default function Chat({
 
     const unsubscribeRoomUpdated = onRoomUpdated((roomInfo: RoomInfo) => {
       console.log("🏠 Room updated:", JSON.stringify(roomInfo, null, 2));
+      const newScore =
+        roomInfo.participantScores != null && username
+          ? roomInfo.participantScores[username] ?? null
+          : null;
+      const prevScore = prevScoreRef.current;
+      if (
+        newScore != null &&
+        prevScore != null &&
+        typeof newScore === "number" &&
+        typeof prevScore === "number"
+      ) {
+        const delta = newScore - prevScore;
+        if (delta > 0) {
+          setPointsOverlay(delta);
+          setPointsOverlayPhase("enter");
+        } else if (delta < 0) {
+          setNegativePointsOverlay(Math.abs(delta));
+          setNegativePointsOverlayPhase("enter");
+        }
+      }
+      prevScoreRef.current = newScore ?? prevScore;
       setRoomInfo(roomInfo);
-      // Timer will be updated by turn-time-update events from server
     });
 
     const unsubscribeUsernameTaken = onUsernameTaken(
@@ -230,6 +261,7 @@ export default function Chat({
     onMessageError,
     socketId,
     roomId,
+    username,
   ]);
 
   useEffect(() => {
@@ -242,20 +274,48 @@ export default function Chat({
     }
   }, [sidePanelOpen, messages]);
 
+  // Points overlay: duración del fade controlada por POINTS_OVERLAY_DURATION_MS (debe ser >= duración de la animación en globals.css)
+  const POINTS_OVERLAY_DURATION_MS = 2000;
+  useEffect(() => {
+    if (pointsOverlay == null) return;
+    const t1 = setTimeout(() => setPointsOverlayPhase("exit"), 1500);
+    const t2 = setTimeout(() => {
+      setPointsOverlay(null);
+      setPointsOverlayPhase("enter");
+    }, POINTS_OVERLAY_DURATION_MS);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [pointsOverlay]);
+
+  useEffect(() => {
+    if (negativePointsOverlay == null) return;
+    const t1 = setTimeout(() => setNegativePointsOverlayPhase("exit"), 1500);
+    const t2 = setTimeout(() => {
+      setNegativePointsOverlay(null);
+      setNegativePointsOverlayPhase("enter");
+    }, POINTS_OVERLAY_DURATION_MS);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [negativePointsOverlay]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   // Main chat: participants + only the one moderator message marked showInMainChat (first sanction per turn).
-  // Legacy: moderator messages without showInMainChat are shown so old history still displays.
-  const mainChatMessages = messages.filter(
-    (m) =>
-      !m.isAIModerator ||
+  // Treat as participant any message where isAIModerator is not explicitly true (so history after refresh works).
+  const mainChatMessages = messages.filter((m) => {
+    const isModerator = m.isAIModerator === true;
+    if (!isModerator) return true;
+    return (
       m.showInMainChat === true ||
-      (m.isAIModerator &&
-        m.showInMainChat === undefined &&
-        m.isSanction !== false)
-  );
+      (m.showInMainChat === undefined && m.isSanction !== false)
+    );
+  });
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -366,6 +426,47 @@ export default function Chat({
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-slate-900">
+      {/* Points overlay: full-screen animation when positive points are awarded */}
+      {pointsOverlay != null && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none"
+          aria-hidden
+        >
+          <div
+            className="font-black text-[min(20rem,30vw)] text-transparent bg-clip-text bg-gradient-to-b from-emerald-400 to-green-600 dark:from-emerald-300 dark:to-green-500 drop-shadow-[0_0_40px_rgba(52,211,153,0.5)] dark:drop-shadow-[0_0_60px_rgba(52,211,153,0.6)]"
+            style={
+              pointsOverlayPhase === "enter"
+                ? { animation: "points-pop-in 1.8s ease-out forwards" }
+                : { opacity: 0, transition: "opacity 0.2s ease-out" }
+            }
+          >
+            +{pointsOverlay.toFixed(1)}
+          </div>
+        </div>
+      )}
+
+      {/* Negative points overlay: full-screen when sanction points are applied (red) */}
+      {negativePointsOverlay != null && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none"
+          aria-hidden
+        >
+          <div
+            className="font-black text-[min(20rem,30vw)] text-transparent bg-clip-text bg-gradient-to-b from-red-400 to-red-700 dark:from-red-400 dark:to-red-800 drop-shadow-[0_0_40px_rgba(248,113,113,0.5)] dark:drop-shadow-[0_0_60px_rgba(248,113,113,0.6)]"
+            style={
+              negativePointsOverlayPhase === "enter"
+                ? { animation: "points-pop-in 1.8s ease-out forwards" }
+                : { opacity: 0, transition: "opacity 0.2s ease-out" }
+            }
+          >
+            -
+            {negativePointsOverlay.toFixed(
+              negativePointsOverlay % 1 === 0 ? 0 : 1
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Chat Area */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Header */}
@@ -565,7 +666,8 @@ export default function Chat({
                 Time&apos;s up! The discussion has concluded.
               </p>
             </div>
-          ) : !roomInfo?.conversationStarted ? (
+          ) : !roomInfo?.conversationStarted && messages.length === 0 ? (
+            /* Show "Ready to start?" only when no messages; after refresh, message-history may arrive before room-updated, so having messages means show main chat. */
             <div className="text-center text-gray-500 dark:text-slate-400 mt-8">
               <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg
