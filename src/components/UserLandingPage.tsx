@@ -9,13 +9,15 @@ interface UserLandingPageProps {
   onJoinRoom: (
     roomId: string,
     username: string,
-    debateConfig: DebateConfig | undefined
+    debateConfig: DebateConfig | undefined,
+    initialArgument?: string
   ) => void;
 }
 
 export default function UserLandingPage({ onJoinRoom }: UserLandingPageProps) {
   const [topic, setTopic] = useState("");
   const [moderationLevel, setModerationLevel] = useState("1");
+  const [duration, setDuration] = useState("30");
 
   const getModerationLevelText = (level: string) => {
     switch (level) {
@@ -30,19 +32,19 @@ export default function UserLandingPage({ onJoinRoom }: UserLandingPageProps) {
     }
   };
 
-  const handleCreateRoom = (username: string) => {
+  const handleCreateRoom = (username: string, initialArgument?: string) => {
     if (username.trim()) {
       const newRoomId = uuidv4();
       const debateConfig: DebateConfig = {
         description: topic.trim() || "General Discussion",
         toleranceLevel: moderationLevel,
-        duration: "30",
+        duration,
       };
-      onJoinRoom(newRoomId, username, debateConfig);
+      onJoinRoom(newRoomId, username, debateConfig, initialArgument);
     }
   };
 
-  const createContent = (username: string) => (
+  const createContent = (username: string, initialArgument: string) => (
     <>
       {/* Topic Input */}
       <div>
@@ -85,9 +87,31 @@ export default function UserLandingPage({ onJoinRoom }: UserLandingPageProps) {
         </p>
       </div>
 
+      {/* Duration */}
+      <div>
+        <label
+          htmlFor="duration"
+          className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+        >
+          Duración del debate
+        </label>
+        <select
+          id="duration"
+          value={duration}
+          onChange={(e) => setDuration(e.target.value)}
+          className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
+        >
+          <option value="6">6 minutos</option>
+          <option value="15">15 minutos</option>
+          <option value="30">30 minutos</option>
+          <option value="45">45 minutos</option>
+          <option value="0">Sin límite</option>
+        </select>
+      </div>
+
       {/* Create Room Button */}
       <button
-        onClick={() => handleCreateRoom(username)}
+        onClick={() => handleCreateRoom(username, initialArgument)}
         disabled={!username.trim()}
         className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 dark:disabled:bg-slate-600 text-white py-3 rounded-lg font-medium transition-colors disabled:cursor-not-allowed"
       >

@@ -10,6 +10,7 @@ function HomeContent() {
   const [roomId, setRoomId] = useState<string>("");
   const [username, setUsername] = useState<string>("");
   const [debateConfig, setDebateConfig] = useState<DebateConfig | null>(null);
+  const [initialArgument, setInitialArgument] = useState<string | undefined>();
   const [isInChat, setIsInChat] = useState(false);
   const searchParams = useSearchParams();
 
@@ -24,17 +25,24 @@ function HomeContent() {
   const handleJoinRoom = (
     roomId: string,
     username: string,
-    debateConfig: DebateConfig | undefined
+    debateConfig: DebateConfig | undefined,
+    initialArgument?: string
   ) => {
     setRoomId(roomId);
     setUsername(username);
     setDebateConfig(debateConfig || null);
+    setInitialArgument(initialArgument);
     setIsInChat(true);
   };
 
   if (isInChat) {
     return (
-      <Chat roomId={roomId} username={username} debateConfig={debateConfig} />
+      <Chat
+        roomId={roomId}
+        username={username}
+        debateConfig={debateConfig}
+        initialArgument={initialArgument}
+      />
     );
   }
 

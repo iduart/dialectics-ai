@@ -20,6 +20,8 @@ export interface RoomInfo {
   currentTurn?: number;
   currentSpeaker?: string;
   conversationStarted?: boolean;
+  debateStartTime?: number;
+  debateEndTime?: number | null;
 }
 
 export const useSocket = () => {
@@ -78,9 +80,19 @@ export const useSocket = () => {
   }, []);
 
   const joinRoom = useCallback(
-    (roomId: string, username: string, debateConfig?: DebateConfig | null) => {
+    (
+      roomId: string,
+      username: string,
+      debateConfig?: DebateConfig | null,
+      initialArgument?: string
+    ) => {
       if (socket) {
-        socket.emit("join-room", { roomId, username, debateConfig });
+        socket.emit("join-room", {
+          roomId,
+          username,
+          debateConfig,
+          initialArgument,
+        });
       }
     },
     [socket]
@@ -99,30 +111,6 @@ export const useSocket = () => {
         console.log("📤 send-message event sent");
       } else {
         console.log("🔴 No socket available");
-      }
-    },
-    [socket]
-  );
-
-  const queryAI = useCallback(
-    (query: string, username: string, roomId: string) => {
-      console.log("🤖 Querying AI:", {
-        query,
-        username,
-        roomId,
-        socketId: socket?.id,
-        socketConnected: socket?.connected,
-      });
-      if (socket) {
-        console.log("📤 Emitting query-ai event with data:", {
-          query,
-          username,
-          roomId,
-        });
-        socket.emit("query-ai", { query, username, roomId });
-        console.log("✅ query-ai event sent successfully");
-      } else {
-        console.log("🔴 No socket available for AI query");
       }
     },
     [socket]
@@ -181,6 +169,15 @@ export const useSocket = () => {
         console.log("✅ start-conversation event sent successfully");
       } else {
         console.log("🔴 No socket available for starting conversation");
+      }
+    },
+    [socket]
+  );
+
+  const extendDebate = useCallback(
+    (roomId: string, additionalMinutes: number) => {
+      if (socket) {
+        socket.emit("extend-debate", { roomId, additionalMinutes });
       }
     },
     [socket]
@@ -280,17 +277,6 @@ export const useSocket = () => {
     [socket]
   );
 
-  const onAIQueryResponse = useCallback(
-    (callback: (response: Message) => void) => {
-      if (socket) {
-        socket.on("ai-query-response", callback);
-        return () => socket.off("ai-query-response", callback);
-      }
-      return () => {};
-    },
-    [socket]
-  );
-
   const onTurnTimeUpdate = useCallback(
     (callback: (data: { timeLeft: number; roomId: string }) => void) => {
       if (socket) {
@@ -318,9 +304,9 @@ export const useSocket = () => {
     connected,
     joinRoom,
     sendMessage,
-    queryAI,
     submitMocion,
     startConversation,
+    extendDebate,
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,
@@ -329,7 +315,6 @@ export const useSocket = () => {
     onUserLeft,
     onRoomConfig,
     onWaitingForCreator,
-    onAIQueryResponse,
     onTurnTimeUpdate,
     onMessageError,
   };

@@ -83,30 +83,6 @@ class AIService {
     }
   }
 
-  // Second pass: ask AI if the moderator response means the message deserves a sanction (true/false)
-  async shouldSanction(moderatorResponse) {
-    if (!this.isAvailable() || !moderatorResponse?.trim()) {
-      return false;
-    }
-    const systemPrompt = `You are a strict classifier. Given a moderator's evaluation of a user message, you must determine if the moderator is applying a sanction (punishment/alert) to the user. Answer with exactly one word: true or false.
-- true: the evaluation indicates a sanction (e.g. insult detected, false information, topic deviation, ALERTA, SANCIONAR, negative score, violation).
-- false: the evaluation indicates no sanction (e.g. neutral, no action needed, valid information, on-topic, MANTIENE EL TEMA, score 0, no violation).`;
-    const userPrompt = `Moderator evaluation:\n${moderatorResponse.trim()}\n\nDoes this message deserve a sanction? Answer only: true or false`;
-    try {
-      const response = await this.callAI(systemPrompt, userPrompt);
-      const normalized = (response || "").trim().toLowerCase();
-      const isTrue =
-        normalized === "true" ||
-        normalized.startsWith("true") ||
-        normalized.includes("true");
-      console.log("🤖 Should sanction (second pass):", normalized, "→", isTrue);
-      return isTrue;
-    } catch (error) {
-      console.error("AI shouldSanction error:", error);
-      return false;
-    }
-  }
-
   // AI Moderation with custom prompt
   async moderateMessageWithPrompt(
     message,
@@ -115,7 +91,7 @@ class AIService {
     customPrompt,
     initialArgumentsContext = ""
   ) {
-    // console.log("🤖 Using custom prompt:", customPrompt);
+    console.log("🤖 Using custom prompt:", customPrompt);
 
     // Build conversation context
     let conversationContext = "";
@@ -181,23 +157,21 @@ A. Escala de Gravedad (Puntaje Base 0-5) Este es el puntaje único que asignas a
 
 5: Agresión grave, deshumanización, amenaza, violencia simbólica manifiesta.
 
-B. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO) Solo genera salida si el veredicto es SANCIONAR. Responde ÚNICAMENTE en Markdown, bien formateado y legible:
-
-**Formato cuando SANCIONAR:** Deja siempre dos líneas en blanco (doble salto de línea) entre: (1) el título y la lista, (2) la lista y el Análisis.
-\`\`\`
-### 🛑 Alerta de civismo
+B. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO) Solo genera salida si el veredicto es SANCIONAR. Usa doble espacio entre líneas para asegurar la separación visual.
 
 
-- **Fragmentos conflictivos:** "[frase 1]" / "[frase 2]"
-- **Veredicto:** SANCIONAR
-- **Score:** -5 o -3 (si Puntaje Total > 4.5 escribe -5, si no -3)
+
+🛑 ALERTA DE CIVISMO
+
+• Fragmentos conflictivos: "[frase 1]" / "[frase 2]"
 
 
-**Análisis:** [Explicación clara y directa al usuario de por qué es ofensivo]
-\`\`\`
 
-Usa encabezados (###), listas con guiones (-), **negrita** en etiquetas y un párrafo final de análisis. No envuelvas la respuesta en bloques de código (\`\`\`); escribe solo el Markdown directamente.
+• Veredicto: SANCIONAR
+
+• Score: [Si Puntaje Total > 4.5 escribe "-5", de lo contrario escribe "-3"]
 C. Cálculo Final (Uso Interno) Puntaje Total = Puntaje Base (0-5) * Factor de Severidad (FS)
+(Ver_Mas)• Análisis: [Explicación clara y directa al usuario de por qué es ofensivo]
 
 3. Definición de Niveles Progresivos
 
@@ -255,30 +229,36 @@ Eres un "Fact-Checker" técnico. Tu única misión es determinar si el mensaje c
   * **Generalización Engañosa:** Usar absolutos sin base factual ("Todos los X son Y").
   * **Atribución Errónea:** Adjudicar falsamente dichos o hechos.
 
-**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)** Responde ÚNICAMENTE en Markdown, bien formateado y estético.
+**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)**
+Usa doble espacio entre líneas para asegurar la separación visual.
 
-**Si el mensaje NO contiene información no veraz:** responde breve en Markdown, por ejemplo:
-\`\`\`
-### ✅ Información válida
-- **Veredicto:** INFORMACIÓN VÁLIDA
-- **Score:** 0
-\`\`\`
-
-**Si el mensaje SÍ contiene información no veraz (tras validar URL):** usa este formato Markdown. Deja dos líneas en blanco entre el título, la lista y el Análisis:
-\`\`\`
-### ⚠️ Alerta de veracidad
+**Si el mensaje NO contiene información no veraz:**
 
 
-- **Fragmento:** "[Frase exacta que contiene el dato falso]"
-- **Veredicto:** INFORMACIÓN FALSA
-- **Score:** -2
-- **Fuente:** [enlace URL funcional y fiable]
+✅ FACT-CHECKER
+
+• Veredicto: INFORMACIÓN VÁLIDA
+
+• Score: 0
 
 
-**Análisis:** [Explicación de la falsedad basada en evidencia. Máximo 2-3 oraciones.]
-\`\`\`
+**Si el mensaje SÍ contiene información no veraz (tras validar URL):**
 
-La fuente debe ser un enlace Markdown: [Texto descriptivo](URL). Usa encabezados (###), listas con guiones (-) y **negrita** en etiquetas. No envuelvas la respuesta en bloques de código (triple backticks); escribe solo el Markdown directamente.
+(Ver_Mas)• Análisis: [Breve explicación de por qué es correcto, opinión o no verificable]
+
+⚠️ ALERTA DE VERACIDAD
+
+• Fragmento: "[Frase exacta que contiene el dato falso]"
+
+
+• Veredicto: INFORMACIÓN FALSA
+
+• Score: -2
+
+
+• Fuente: https://positiveengineering.com/es/las-pruebas-de-verificacion-en-seguridad-funcional/
+
+(Ver_Mas)• Análisis: [Explicación de la falsedad basada en evidencia]
   `, // Default prompt for fact checking
   promptDesvioTema: `
   **1. ROL Y MISIÓN**
@@ -306,29 +286,31 @@ Eres un "Moderador de Coherencia" técnico. Tu misión no es solo detectar si el
 
 **6. Moción:** Cuando el participante diga moción, se debe entender que esta activando con esa palabra clave a otro Moderador, por lo tanto no debes tomarlo como un desvio de tema, por lo tanto tu veredicto en este caso que se presente esta palabra, será NO.
 
-**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)** Responde ÚNICAMENTE en Markdown, bien formateado y estético.
+**4. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)**
+Usa doble espacio entre líneas para asegurar la separación visual.
 
-**Si el mensaje NO se desvía:** responde breve en Markdown, por ejemplo:
-\`\`\`
-### ✅ Coherencia
-- **Veredicto:** MANTIENE EL TEMA
-- **Score:** 0
-**Análisis:** [Motivo breve: se mantiene en el tema / sigue el hilo / interacción social.]
-\`\`\`
-
-**Si el mensaje SÍ se desvía:** usa este formato Markdown. Deja dos líneas en blanco entre el título, la lista y el Análisis:
-\`\`\`
-### ⚠️ Alerta de desvío
+**Si el mensaje NO se desvía:**
 
 
-- **Veredicto:** DESVÍO DE TEMA
-- **Score:** -2
+✅ COHERENCIA
+
+• Veredicto: MANTIENE EL TEMA
+
+• Score: 0
+
+(Ver_Mas)• Análisis: [Motivo breve: 'Se mantiene en el tema' / 'Sigue el hilo lógico del sub-tema (ej. filosofía)' / 'Es una interacción social'.]
+
+**Si el mensaje SÍ se desvía:**
 
 
-**Análisis:** El mensaje introduce un tema argumental nuevo ([describir brevemente]) que rompe la coherencia con el tema principal y el turno anterior.
-\`\`\`
+⚠️ ALERTA DE DESVÍO
 
-Usa encabezados (###), listas con guiones (-) y **negrita** en etiquetas. No envuelvas la respuesta en bloques de código (triple backticks); escribe solo el Markdown directamente.
+
+• Veredicto: DESVÍO DE TEMA
+
+• Score: -2
+
+(Ver_Mas)• Análisis: El mensaje introduce un tema argumental nuevo ([Describir brevemente el nuevo tema]) que rompe la coherencia con el tema principal y el turno anterior.
   `, // Default prompt for topic deviation detection
 };
 
@@ -395,7 +377,7 @@ async function analyzeMessage(message, username, roomId) {
     const results = [];
     for (let i = 0; i < prompts.length; i++) {
       const prompt = prompts[i];
-      //   console.log(`🤖 Analyzing with prompt "${prompt.name}":`, prompt.value);
+      console.log(`🤖 Analyzing with prompt "${prompt.name}":`, prompt.value);
 
       const result = await aiService.moderateMessageWithPrompt(
         message,
@@ -527,8 +509,6 @@ app.prepare().then(() => {
       currentTurn: roomData.currentTurn,
       currentSpeaker: roomData.currentSpeaker,
       conversationStarted: roomData.conversationStarted,
-      debateStartTime: roomData.debateStartTime,
-      debateEndTime: roomData.debateEndTime,
     });
 
     // Start timer for new turn
@@ -658,8 +638,6 @@ app.prepare().then(() => {
         currentTurn: roomData.currentTurn,
         currentSpeaker: roomData.currentSpeaker,
         conversationStarted: roomData.conversationStarted || false,
-        debateStartTime: roomData.debateStartTime,
-        debateEndTime: roomData.debateEndTime,
       };
 
       console.log("📤 Sending room info to all participants:", {
@@ -833,44 +811,52 @@ app.prepare().then(() => {
           data.roomId
         );
 
-        // Only one sanction per participant message: first result that deserves sanction is sent, then stop
-        if (aiResult.results && aiResult.results.length > 0) {
-          const baseId = Date.now();
-          let sanctionSent = false;
+        if (
+          aiResult.shouldRespond &&
+          aiResult.results &&
+          aiResult.results.length > 0
+        ) {
+          // Send responses for each prompt that should respond
           for (const result of aiResult.results) {
-            if (sanctionSent) break;
             if (result.shouldRespond && result.response) {
               const promptName =
                 result.promptName || `Prompt ${result.promptIndex + 1}`;
-              const deservesSanction = await aiService.shouldSanction(
+              const aiMessage = {
+                id: `ai-${Date.now()}-${result.promptIndex}`,
+                message: `[${promptName}] ${result.response}`,
+                username: "Moderador",
+                timestamp: new Date().toISOString(),
+                socketId: "ai-moderator",
+                isAIModerator: true,
+                reason: result.reason,
+                promptIndex: result.promptIndex,
+                promptName: promptName,
+              };
+
+              // Store AI message
+              messages.push(aiMessage);
+              messageStore.set(data.roomId, messages);
+
+              // Broadcast AI message to room
+              io.to(data.roomId).emit("receive-message", aiMessage);
+              console.log(
+                `🤖 AI intervention sent for prompt "${promptName}":`,
                 result.response
               );
-              console.log("🤖 Deserves sanction:", deservesSanction);
-              if (deservesSanction) {
-                const aiMessage = {
-                  id: `ai-${baseId}-${result.promptIndex}`,
-                  message: `[${promptName}]\n\n${result.response}`,
-                  username: "Moderador",
-                  timestamp: new Date().toISOString(),
-                  socketId: "ai-moderator",
-                  isAIModerator: true,
-                  reason: result.reason,
-                  promptIndex: result.promptIndex,
-                  promptName: promptName,
-                };
-                messages.push(aiMessage);
-                messageStore.set(data.roomId, messages);
-                io.to(data.roomId).emit("receive-message", aiMessage);
-                sanctionSent = true;
-                console.log(
-                  `🤖 AI intervention (single sanction) for prompt "${promptName}":`,
-                  result.response
-                );
-              } else {
-                console.log(
-                  `🤖 AI response for "${promptName}" did not merit sanction — not sending to chat`
-                );
-              }
+
+              // Send reasoning to side chat for all participants
+              const reasoningMessage = {
+                id: `ai-reasoning-${Date.now()}-${result.promptIndex}`,
+                message: `AI Intervention Reasoning (${promptName}): ${
+                  result.reason || "No specific reason provided"
+                }`,
+                username: "AI Assistant",
+                timestamp: new Date().toISOString(),
+                socketId: "ai-assistant",
+                isAIModerator: true,
+              };
+
+              io.to(data.roomId).emit("ai-query-response", reasoningMessage);
             }
           }
         }
@@ -905,8 +891,6 @@ app.prepare().then(() => {
             currentTurn: roomData.currentTurn,
             currentSpeaker: roomData.currentSpeaker,
             conversationStarted: roomData.conversationStarted,
-            debateStartTime: roomData.debateStartTime,
-            debateEndTime: roomData.debateEndTime,
           });
         }
       }
@@ -947,37 +931,25 @@ app.prepare().then(() => {
         return;
       }
 
-      // Start the conversation and set debate duration
+      // Start the conversation
       roomData.conversationStarted = true;
       roomData.currentTurn = 0;
       roomData.currentSpeaker = roomData.participants[0].username;
-      const debateConfig = roomConfigs.get(data.roomId);
-      const durationMinutes =
-        parseInt(debateConfig?.duration || "30", 10) || 30;
-      roomData.debateStartTime = Date.now();
-      roomData.debateEndTime =
-        durationMinutes === 0 ? null : Date.now() + durationMinutes * 60 * 1000;
       roomParticipants.set(data.roomId, roomData);
 
       console.log(
-        `✅ Conversation started - first speaker: ${
-          roomData.currentSpeaker
-        }, duration: ${
-          durationMinutes === 0 ? "unlimited" : durationMinutes + " min"
-        }`
+        `✅ Conversation started - first speaker: ${roomData.currentSpeaker}`
       );
 
       // Start timer for first participant
       startTurnTimer(data.roomId);
 
-      // Emit room update to all participants (include debate times)
+      // Emit room update to all participants
       const roomInfo = {
         participants: roomData.participants,
         currentTurn: roomData.currentTurn,
         currentSpeaker: roomData.currentSpeaker,
         conversationStarted: roomData.conversationStarted,
-        debateStartTime: roomData.debateStartTime,
-        debateEndTime: roomData.debateEndTime,
       };
 
       io.to(data.roomId).emit("room-updated", roomInfo);
@@ -985,30 +957,147 @@ app.prepare().then(() => {
       console.log("=== END START CONVERSATION EVENT ===\n");
     });
 
-    // Extend debate duration (called when 5 min left)
-    socket.on("extend-debate", (data) => {
-      const { roomId, additionalMinutes } = data;
-      const roomData = roomParticipants.get(roomId);
-      if (!roomData || !roomData.conversationStarted) return;
-      roomData.debateEndTime =
-        additionalMinutes === 0
-          ? null
-          : Date.now() + additionalMinutes * 60 * 1000;
-      roomParticipants.set(roomId, roomData);
-      const roomInfo = {
-        participants: roomData.participants,
-        currentTurn: roomData.currentTurn,
-        currentSpeaker: roomData.currentSpeaker,
-        conversationStarted: roomData.conversationStarted,
-        debateStartTime: roomData.debateStartTime,
-        debateEndTime: roomData.debateEndTime,
-      };
-      io.to(roomId).emit("room-updated", roomInfo);
-      console.log(
-        `📢 Debate extended in ${roomId}: ${
-          additionalMinutes === 0 ? "Sin límite" : additionalMinutes + " min"
-        }`
-      );
+    // Handle AI queries
+    socket.on("query-ai", async (data) => {
+      console.log("\n=== AI QUERY RECEIVED ===");
+      console.log("🤖 AI Query:", {
+        query: data.query,
+        username: data.username,
+        roomId: data.roomId,
+        socketId: socket.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Check if AI service is available
+      if (!aiService.isAvailable()) {
+        console.log("❌ AI Service not available - no OpenAI API key");
+        socket.emit("ai-query-response", {
+          id: `ai-query-error-${Date.now()}`,
+          message:
+            "El servicio de IA no está disponible. Por favor, verifica que la clave API de OpenAI esté configurada.",
+          username: "AI Assistant",
+          timestamp: new Date().toISOString(),
+          socketId: "ai-assistant",
+          isAIModerator: true,
+        });
+        return;
+      }
+
+      try {
+        // Get conversation history for context
+        const conversationHistory = messageStore.get(data.roomId) || [];
+        const debateConfig = roomConfigs.get(data.roomId);
+
+        console.log("🔍 AI Query Context:", {
+          roomId: data.roomId,
+          conversationHistoryLength: conversationHistory.length,
+          debateConfigExists: !!debateConfig,
+          promptsCount: [
+            debateConfig?.promptInsultos || DEFAULT_PROMPTS.promptInsultos,
+            debateConfig?.promptFactCheck || DEFAULT_PROMPTS.promptFactCheck,
+            debateConfig?.promptDesvioTema || DEFAULT_PROMPTS.promptDesvioTema,
+          ].filter((p) => p && p.trim() !== "").length,
+        });
+
+        // Build initial arguments context (posturas) for the room
+        const roomDataForQuery = roomParticipants.get(data.roomId);
+        let initialArgsSnippet = "";
+        if (roomDataForQuery?.participants?.length) {
+          const lines = roomDataForQuery.participants
+            .filter(
+              (p) => p.initialArgument && String(p.initialArgument).trim()
+            )
+            .map((p) => `${p.username}: ${p.initialArgument.trim()}`);
+          if (lines.length) {
+            initialArgsSnippet = `\nPosturas ante el debate:\n${lines.join(
+              "\n"
+            )}\n`;
+          }
+        }
+
+        // Build a user prompt with recent conversation history as context
+        const historySnippet = (conversationHistory || [])
+          .slice(-10)
+          .map((msg) => `${msg.username}: ${msg.message}`)
+          .join("\n");
+
+        const userPrompt = `${
+          initialArgsSnippet ? initialArgsSnippet + "\n" : ""
+        }Contexto reciente de la conversación (últimos 10 mensajes):\n${historySnippet}\n\nPregunta del usuario: ${
+          data.query
+        }`;
+
+        console.log(
+          "🤖 Calling AI service with user prompt (with history):",
+          userPrompt.substring(0, 200) + "..."
+        );
+        console.log(
+          "📞 About to call aiService.callAI() with empty system prompt..."
+        );
+
+        const aiResponse = await aiService.callAI("", userPrompt);
+
+        console.log("📞 aiService.callAI() completed");
+        console.log("🤖 AI Response received:", {
+          responseLength: aiResponse?.length || 0,
+          responsePreview: aiResponse?.substring(0, 100) + "...",
+          fullResponse: aiResponse,
+        });
+
+        // Send AI response back to the user
+        console.log("📝 Creating response message...");
+        const responseMessage = {
+          id: `ai-query-${Date.now()}`,
+          message:
+            aiResponse ||
+            "Lo siento, no pude procesar tu pregunta en este momento. Por favor, inténtalo de nuevo.",
+          username: "AI Assistant",
+          timestamp: new Date().toISOString(),
+          socketId: "ai-assistant",
+          isAIModerator: true,
+        };
+
+        console.log("📝 Response message created:", {
+          id: responseMessage.id,
+          messageLength: responseMessage.message.length,
+          messagePreview: responseMessage.message.substring(0, 100) + "...",
+          username: responseMessage.username,
+          socketId: responseMessage.socketId,
+          isAIModerator: responseMessage.isAIModerator,
+        });
+
+        console.log("📤 About to emit ai-query-response to socket:", socket.id);
+        socket.emit("ai-query-response", responseMessage);
+        console.log("📤 ai-query-response event emitted successfully");
+        console.log(
+          "✅ AI Query response sent:",
+          aiResponse?.substring(0, 100) + "..."
+        );
+        console.log("=== END AI QUERY ===\n");
+      } catch (error) {
+        console.error("❌ AI Query error:", error);
+        console.error("❌ Error details:", {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+        });
+
+        const errorMessage = {
+          id: `ai-query-error-${Date.now()}`,
+          message:
+            "Lo siento, encontré un error al procesar tu pregunta. Por favor, inténtalo de nuevo.",
+          username: "AI Assistant",
+          timestamp: new Date().toISOString(),
+          socketId: "ai-assistant",
+          isAIModerator: true,
+        };
+
+        console.log("📝 Error message created:", errorMessage);
+        console.log("📤 About to emit error response to socket:", socket.id);
+        socket.emit("ai-query-response", errorMessage);
+        console.log("📤 Error response emitted successfully");
+        console.log("=== END AI QUERY (ERROR) ===\n");
+      }
     });
 
     // Handle mocion submission
@@ -1162,11 +1251,6 @@ ${debateConfig.mocionPrompt}`;
             );
             const roomInfo = {
               participants: roomData.participants,
-              currentTurn: roomData.currentTurn,
-              currentSpeaker: roomData.currentSpeaker,
-              conversationStarted: roomData.conversationStarted,
-              debateStartTime: roomData.debateStartTime,
-              debateEndTime: roomData.debateEndTime,
             };
             io.to(roomId).emit("room-updated", roomInfo);
             io.to(roomId).emit("user-left", { username: participant.username });

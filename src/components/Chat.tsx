@@ -9,41 +9,76 @@ interface ChatProps {
   roomId: string;
   username: string;
   debateConfig: DebateConfig | null;
+  initialArgument?: string;
 }
 
 export default function Chat({
   roomId,
   username,
   debateConfig: initialDebateConfig,
+  initialArgument,
 }: ChatProps) {
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [socketId, setSocketId] = useState<string>("");
-  const [isDebateEnded] = useState(false);
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
+  const [debateCountdownNow, setDebateCountdownNow] = useState(() =>
+    Date.now()
+  );
+  const [showExtendModal, setShowExtendModal] = useState(false);
+  const extendModalShownForEndRef = useRef<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [debateConfig, setDebateConfig] = useState<DebateConfig | null>(
     initialDebateConfig
   );
-  const [showSideChat, setShowSideChat] = useState(false);
-  const [sideChatMessages, setSideChatMessages] = useState<MessageType[]>([]);
-  const [sideChatInput, setSideChatInput] = useState("");
   const [showMocionModal, setShowMocionModal] = useState(false);
   const [selectedMocionMessage, setSelectedMocionMessage] =
     useState<MessageType | null>(null);
   const [mocionText, setMocionText] = useState("");
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const sideChatEndRef = useRef<HTMLDivElement>(null);
+
+  // Debate total duration: remaining seconds (Infinity = sin límite)
+  const debateRemainingSeconds =
+    roomInfo?.debateEndTime == null
+      ? Infinity
+      : Math.max(
+          0,
+          Math.floor((roomInfo.debateEndTime - debateCountdownNow) / 1000)
+        );
+  const isDebateEnded =
+    roomInfo?.debateEndTime != null && debateRemainingSeconds <= 0;
+
+  // Sync countdown when debate end time is set, then tick every second
+  useEffect(() => {
+    if (roomInfo?.debateEndTime == null) return;
+    setDebateCountdownNow(Date.now());
+    const id = setInterval(() => setDebateCountdownNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [roomInfo?.debateEndTime]);
+
+  // Show extend modal when 5 min left (once per debate end)
+  useEffect(() => {
+    if (
+      roomInfo?.debateEndTime != null &&
+      debateRemainingSeconds > 0 &&
+      debateRemainingSeconds <= 300
+    ) {
+      if (extendModalShownForEndRef.current !== roomInfo.debateEndTime) {
+        extendModalShownForEndRef.current = roomInfo.debateEndTime;
+        setShowExtendModal(true);
+      }
+    }
+  }, [roomInfo?.debateEndTime, debateRemainingSeconds]);
 
   const {
     socket,
     connected,
     joinRoom,
     sendMessage,
-    queryAI,
     submitMocion,
     startConversation,
+    extendDebate,
     onReceiveMessage,
     onUserJoined,
     onMessageHistory,
@@ -52,7 +87,6 @@ export default function Chat({
     onUserLeft,
     onRoomConfig,
     onWaitingForCreator,
-    onAIQueryResponse,
     onTurnTimeUpdate,
     onMessageError,
   } = useSocket();
@@ -93,9 +127,9 @@ export default function Chat({
       });
       // Join room when we have socket, roomId, and username
       // Only join once, don't rejoin when debateConfig changes
-      joinRoom(roomId, username, debateConfig);
+      joinRoom(roomId, username, debateConfig, initialArgument);
     }
-  }, [socket, roomId, username, joinRoom, debateConfig]);
+  }, [socket, roomId, username, joinRoom, debateConfig, initialArgument]);
 
   useEffect(() => {
     const unsubscribeReceive = onReceiveMessage((message: MessageType) => {
@@ -155,26 +189,6 @@ export default function Chat({
       }
     );
 
-    const unsubscribeAIQueryResponse = onAIQueryResponse(
-      (response: MessageType) => {
-        console.log("🤖 AI Query Response received:", {
-          message: response.message,
-          username: response.username,
-          socketId: response.socketId,
-          id: response.id,
-          timestamp: response.timestamp,
-        });
-        setSideChatMessages((prev) => {
-          const newMessages = [...prev, response];
-          console.log(
-            "📝 New side chat messages after adding:",
-            newMessages.length
-          );
-          return newMessages;
-        });
-      }
-    );
-
     const unsubscribeTurnTimeUpdate = onTurnTimeUpdate(
       (data: { timeLeft: number; roomId: string }) => {
         if (data.roomId === roomId) {
@@ -198,7 +212,6 @@ export default function Chat({
       unsubscribeUserLeft();
       unsubscribeRoomConfig();
       unsubscribeWaitingForCreator();
-      unsubscribeAIQueryResponse();
       unsubscribeTurnTimeUpdate();
       unsubscribeMessageError();
     };
@@ -211,7 +224,6 @@ export default function Chat({
     onUserLeft,
     onRoomConfig,
     onWaitingForCreator,
-    onAIQueryResponse,
     onTurnTimeUpdate,
     onMessageError,
     socketId,
@@ -221,10 +233,6 @@ export default function Chat({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  useEffect(() => {
-    sideChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [sideChatMessages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -268,47 +276,6 @@ export default function Chat({
   // Check if it's the current user's turn
   const isMyTurn =
     roomInfo?.conversationStarted && roomInfo?.currentSpeaker === username;
-
-  const handleSideChatSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log("🔵 Side chat send triggered:", {
-      sideChatInput: sideChatInput.trim(),
-      connected,
-      username,
-      roomId,
-      socketId,
-    });
-
-    if (sideChatInput.trim() && connected) {
-      // Add user message to side chat
-      const userMessage: MessageType = {
-        id: `side-${Date.now()}`,
-        message: sideChatInput.trim(),
-        username: username,
-        timestamp: new Date().toISOString(),
-        socketId: socketId,
-        isAIModerator: false,
-      };
-      setSideChatMessages((prev) => [...prev, userMessage]);
-      console.log("📝 Added user message to side chat:", userMessage);
-
-      // Send query to AI
-      console.log("🚀 Sending query to AI:", {
-        query: sideChatInput.trim(),
-        username,
-        roomId,
-      });
-      queryAI(sideChatInput.trim(), username, roomId);
-      setSideChatInput("");
-    } else {
-      console.log("❌ Cannot send side chat message:", {
-        hasInput: !!sideChatInput.trim(),
-        connected,
-        username,
-        roomId,
-      });
-    }
-  };
 
   const handleMocionClick = (message: MessageType) => {
     setSelectedMocionMessage(message);
@@ -381,11 +348,7 @@ export default function Chat({
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-slate-900">
       {/* Main Chat Area */}
-      <div
-        className={`flex flex-col ${
-          showSideChat ? "flex-1" : "w-full"
-        } transition-all duration-300`}
-      >
+      <div className="flex flex-col w-full">
         {/* Header */}
         <div className="bg-white dark:bg-slate-800 shadow-sm border-b border-gray-200 dark:border-slate-700 px-6 py-4">
           <div className="flex justify-between items-center">
@@ -429,6 +392,28 @@ export default function Chat({
                     AI Moderator Active
                   </span>
                 </div>
+                {roomInfo?.conversationStarted && (
+                  <>
+                    <span className="text-xs text-gray-500 dark:text-slate-500">
+                      •
+                    </span>
+                    <span className="text-xs text-gray-600 dark:text-slate-400">
+                      Debate:{" "}
+                      {roomInfo.debateEndTime == null ? (
+                        "Sin límite"
+                      ) : isDebateEnded ? (
+                        <span className="text-red-600 dark:text-red-400">
+                          Finalizado
+                        </span>
+                      ) : (
+                        <span className="font-mono">
+                          {Math.floor(debateRemainingSeconds / 60)}:
+                          {String(debateRemainingSeconds % 60).padStart(2, "0")}
+                        </span>
+                      )}
+                    </span>
+                  </>
+                )}
                 {roomInfo?.currentSpeaker && (
                   <>
                     <span className="text-xs text-gray-500 dark:text-slate-500">
@@ -467,12 +452,6 @@ export default function Chat({
                 </span>
               </div>
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setShowSideChat(!showSideChat)}
-                  className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-colors border border-blue-300 dark:border-blue-700 text-sm"
-                >
-                  {showSideChat ? "💬 Hide AI Chat" : "🤖 Ask AI"}
-                </button>
                 <span className="text-sm text-gray-600 dark:text-slate-400">
                   {connectionStatus}
                 </span>
@@ -603,7 +582,7 @@ export default function Chat({
                   : !isMyTurn
                   ? `No es tu turno. Es el turno de ${roomInfo?.currentSpeaker}.`
                   : isDebateEnded
-                  ? "Debate has ended"
+                  ? "Debate finalizado"
                   : "Type your message..."
               }
               className="flex-1 border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors"
@@ -643,6 +622,79 @@ export default function Chat({
           )}
         </div>
       </div>
+
+      {/* Extend debate modal (5 min before end) */}
+      {showExtendModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+            <h2 className="text-xl font-semibold text-gray-800 dark:text-slate-100 mb-2">
+              ¿Extender el debate?
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-slate-400 mb-4">
+              Quedan menos de 5 minutos. ¿Deseas añadir más tiempo?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  extendDebate(roomId, 6);
+                  setShowExtendModal(false);
+                }}
+                className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
+              >
+                + 6 minutos
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  extendDebate(roomId, 15);
+                  setShowExtendModal(false);
+                }}
+                className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
+              >
+                + 15 minutos
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  extendDebate(roomId, 30);
+                  setShowExtendModal(false);
+                }}
+                className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
+              >
+                + 30 minutos
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  extendDebate(roomId, 45);
+                  setShowExtendModal(false);
+                }}
+                className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
+              >
+                + 45 minutos
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  extendDebate(roomId, 0);
+                  setShowExtendModal(false);
+                }}
+                className="w-full px-4 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Sin límite
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowExtendModal(false)}
+                className="w-full px-4 py-3 bg-gray-200 dark:bg-slate-600 text-gray-800 dark:text-slate-200 rounded-lg hover:bg-gray-300 dark:hover:bg-slate-500 transition-colors"
+              >
+                No extender
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mocion Modal */}
       {showMocionModal && selectedMocionMessage && (
@@ -688,77 +740,6 @@ export default function Chat({
                   Enviar moción
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Side Chat Panel */}
-      {showSideChat && (
-        <div className="w-96 border-l border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col">
-          {/* Side Chat Header */}
-          <div className="p-4 border-b border-gray-200 dark:border-slate-700">
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100">
-              🤖 Ask AI
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-slate-400">
-              Ask the AI about its decisions and reasoning
-            </p>
-          </div>
-
-          {/* Side Chat Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {sideChatMessages.length === 0 ? (
-              <div className="text-center text-gray-500 dark:text-slate-400 mt-8">
-                <p className="text-sm">No messages yet</p>
-                <p className="text-xs mt-1">Ask the AI about its decisions!</p>
-              </div>
-            ) : (
-              sideChatMessages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${
-                    message.isAIModerator ? "justify-start" : "justify-end"
-                  }`}
-                >
-                  <div
-                    className={`max-w-xs px-3 py-2 rounded-lg text-sm ${
-                      message.isAIModerator
-                        ? "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200"
-                        : "bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-slate-200"
-                    }`}
-                  >
-                    <div className="font-medium text-xs mb-1">
-                      {message.isAIModerator
-                        ? "AI Assistant"
-                        : message.username}
-                    </div>
-                    <div>{message.message}</div>
-                  </div>
-                </div>
-              ))
-            )}
-            <div ref={sideChatEndRef} />
-          </div>
-
-          {/* Side Chat Input */}
-          <div className="p-4 border-t border-gray-200 dark:border-slate-700">
-            <form onSubmit={handleSideChatSend} className="flex space-x-2">
-              <input
-                type="text"
-                value={sideChatInput}
-                onChange={(e) => setSideChatInput(e.target.value)}
-                placeholder="Ask the AI about its decisions..."
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 text-sm"
-                disabled={!connected}
-              />
-              <button
-                type="submit"
-                disabled={!sideChatInput.trim() || !connected}
-                className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
-              >
-                Send
-              </button>
             </form>
           </div>
         </div>

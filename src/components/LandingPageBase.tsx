@@ -7,9 +7,10 @@ interface LandingPageBaseProps {
   onJoinRoom: (
     roomId: string,
     username: string,
-    debateConfig: DebateConfig | undefined
+    debateConfig: DebateConfig | undefined,
+    initialArgument?: string
   ) => void;
-  createContent: (username: string) => ReactNode;
+  createContent: (username: string, initialArgument: string) => ReactNode;
 }
 
 export default function LandingPageBase({
@@ -18,11 +19,17 @@ export default function LandingPageBase({
 }: LandingPageBaseProps) {
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState("");
+  const [initialArgument, setInitialArgument] = useState("");
   const [activeTab, setActiveTab] = useState<"create" | "join">("create");
 
   const handleJoinRoom = () => {
     if (username.trim() && roomId.trim()) {
-      onJoinRoom(roomId, username, undefined);
+      onJoinRoom(
+        roomId,
+        username,
+        undefined,
+        initialArgument.trim() || undefined
+      );
     }
   };
 
@@ -83,9 +90,27 @@ export default function LandingPageBase({
             />
           </div>
 
+          {/* Initial Argument / Postura ante el debate */}
+          <div>
+            <label
+              htmlFor="initialArgument"
+              className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2"
+            >
+              Postura ante el debate
+            </label>
+            <textarea
+              id="initialArgument"
+              value={initialArgument}
+              onChange={(e) => setInitialArgument(e.target.value)}
+              placeholder="Tu argumento o postura inicial en el debate (opcional)"
+              rows={4}
+              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder-gray-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400 transition-colors resize-y text-sm"
+            />
+          </div>
+
           {/* Tab Content */}
           {activeTab === "create" ? (
-            createContent(username)
+            createContent(username, initialArgument)
           ) : (
             <>
               {/* Room ID Input */}

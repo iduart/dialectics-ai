@@ -2,6 +2,8 @@
 
 import { Message as MessageType } from "@/hooks/useSocket";
 import { formatDistanceToNow } from "date-fns";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 
 interface MessageProps {
   message: MessageType;
@@ -33,8 +35,10 @@ export default function Message({
               {message.username}
             </div>
           </div>
-          <div className="text-sm text-amber-900 dark:text-amber-100 mb-2 leading-relaxed">
-            {message.message}
+          <div className="text-sm text-amber-900 dark:text-amber-100 mb-2 leading-relaxed [&_a]:text-amber-600 dark:[&_a]:text-amber-400 [&_a]:underline [&_ul]:list-disc [&_ul]:list-inside [&_ol]:list-decimal [&_ol]:list-inside [&_p]:mt-2 [&_p]:mb-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_h3]:text-base [&_h3]:font-bold [&_h3]:mt-3 [&_h3]:mb-2 [&_h3]:first:mt-0">
+            <ReactMarkdown remarkPlugins={[remarkBreaks]}>
+              {message.message}
+            </ReactMarkdown>
           </div>
           {message.reason && (
             <div className="text-xs text-amber-700 dark:text-amber-300 italic bg-amber-100 dark:bg-amber-800/30 px-2 py-1 rounded-lg">
@@ -47,14 +51,16 @@ export default function Message({
                 addSuffix: true,
               })}
             </div>
-            {onMocionClick && message.promptName === "Desvío de Tema" && (
-              <button
-                onClick={() => onMocionClick(message)}
-                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
-              >
-                Mocion
-              </button>
-            )}
+            {onMocionClick &&
+              (message.promptName === "Desvío de Tema" ||
+                message.promptName === "Fact Check") && (
+                <button
+                  onClick={() => onMocionClick(message)}
+                  className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded-lg transition-colors shadow-sm"
+                >
+                  Mocion
+                </button>
+              )}
           </div>
         </div>
       </div>
