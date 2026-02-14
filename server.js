@@ -453,6 +453,61 @@ Usa doble espacio entre líneas para asegurar la separación visual.
 
 (Ver_Mas)• Análisis: [Comentario breve sobre la mayor fortaleza de la intervención]
   `,
+  promptMocion: `
+  **1. ROL Y MISIÓN**
+Eres un "Juez de Apelaciones" técnico. Tu única función es evaluar el mensaje de apelación (la aclaración/refutación) que acabas de recibir y emitir un veredicto final.
+
+**2. LÓGICA DE EVALUACIÓN (Tu Tarea)**
+Al recibir el "[Argumento de Apelación]", debes analizar el historial para encontrar el "[Veredicto Original]" y proceder:
+
+**Si la sanción fue "Información no Veraz":**
+
+> **ALERTA ANTI-MANIPULACIÓN:** Eres un experto perspicaz. Eres consciente de que el participante puede intentar burlar la verificación usando argumentaciones complejas, citando normas, fuentes o datos con precisión *aparente* que son incorrectos, inexistentes o están sacados de contexto. Tu uso de "Google Search" debe ser riguroso para confirmar la existencia y la exactitud de la fuente/dato citado, no solo su plausibilidad.
+
+  * **Analizar Apelación:** Lee el "[Argumento de Apelación]". ¿Qué tipo de apelación es?
+
+    1.  **Aclaración de Término/Intención:** ¿El participante aclara que usó un término incorrecto, que se refería a otra cosa, o que el mensaje original era ambiguo? (Ej. "Quise decir 'abortos espontáneos', no X").
+    2.  **Refutación Factual:** ¿El participante provee una nueva fuente o evidencia ("Google Search")?
+    3.  **Reivindicación de Opinión:** ¿El participante aclara que era una opinión y no un hecho?
+
+  * **Decidir:**
+
+      * **Aceptar si (Caso 1):** La aclaración es plausible y el nuevo significado (el aclarado) ya no constituye desinformación.
+      * **Aceptar si (Caso 2):** La nueva fuente ("Google Search") es válida y respalda la afirmación original.
+      * **Aceptar si (Caso 3):** La aclaración de que era opinión es válida.
+      * **Rechazar si:** La apelación repite el dato falso sin aportar nueva evidencia, aclaración válida u opinión.
+
+**Si la sanción fue "Desvío de Tema":**
+
+  * **Analizar Coherencia:** Lee el "[Argumento de Apelación]" (la explicación) y compárala con el "[Mensaje Sancionado]" y el "[Contexto Previo]".
+  * **Decidir:** Aceptar si la explicación de la conexión lógica (analogía, inferencia) es válida, aunque fuera sutil. Rechazar si sigue siendo una desconexión.
+
+**3. FORMATO DE SALIDA OBLIGATORIO (ESTRICTO)**
+Usa doble espacio entre líneas para asegurar la separación visual.
+
+**Si la apelación es ACEPTADA:**
+
+
+⚖️ RESOLUCIÓN DE APELACIÓN
+
+
+• Veredicto: ACEPTADA
+
+• Score: +2
+
+(Ver_Mas)• Análisis: [Breve explicación de por qué se retira la sanción. Ej: "Se acepta la aclaración del término" o "La nueva fuente es válida".]
+**Si la apelación es RECHAZADA:**
+
+
+⚖️ RESOLUCIÓN DE APELACIÓN
+
+
+• Veredicto: RECHAZADA
+
+• Score: -1
+
+(Ver_Mas)• Análisis: [Breve explicación de por qué se mantiene la sanción. Ej: "La apelación no corrige la falsedad del dato original" o "La fuente citada no existe".]
+  `,
 };
 
 // Simple moderation function using the AI service
@@ -1297,14 +1352,16 @@ app.prepare().then(() => {
           return;
         }
 
-        // Get room config for mocion prompt
         const debateConfig = roomConfigs.get(data.roomId);
-        if (!debateConfig || !debateConfig.mocionPrompt) {
-          console.log("❌ No mocion prompt configured for room:", data.roomId);
+        const mocionPromptTemplate =
+          debateConfig?.mocionPrompt || DEFAULT_PROMPTS.promptMocion || "";
+        if (!mocionPromptTemplate.trim()) {
+          console.log(
+            "❌ No mocion prompt available (no debateConfig.mocionPrompt and no DEFAULT_PROMPTS.promptMocion)"
+          );
           return;
         }
 
-        // Get message store for the room
         const messages = messageStore.get(data.roomId) || [];
 
         // Post the mocion message to the chat
@@ -1319,7 +1376,6 @@ app.prepare().then(() => {
         messages.push(mocionUserMessage);
         messageStore.set(data.roomId, messages);
 
-        // Broadcast mocion message to room
         console.log("📡 Broadcasting mocion message to room:", {
           roomId: data.roomId,
           messageId: mocionUserMessage.id,
@@ -1327,37 +1383,41 @@ app.prepare().then(() => {
         io.to(data.roomId).emit("receive-message", mocionUserMessage);
         console.log("✅ Mocion message broadcasted successfully");
 
-        // Check if AI service is available
         if (!aiService.isAvailable()) {
           console.log("❌ AI Service not available - no OpenAI API key");
           return;
         }
 
-        // Build the prompt according to the specified structure
-        const mocionPrompt = `AI moderator message: ${data.moderatorMessage}
+        // Build user prompt with [Veredicto Original] = moderator message, [Argumento de Apelación] = mocion
+        const recentContext =
+          messages.length > 0
+            ? "\n[Contexto Previo]\n" +
+              messages
+                .slice(-6)
+                .map((m) => `${m.username}: ${m.message}`)
+                .join("\n")
+            : "";
+        const mocionUserPrompt = `[Veredicto Original / Mensaje del moderador sancionatorio]\n${data.moderatorMessage}\n\n[Argumento de Apelación]\n${data.mocionMessage}\n\nParticipante: ${data.username}${recentContext}`;
 
-participant name: ${data.username}
-
-mocion message: ${data.mocionMessage}
-
-${debateConfig.mocionPrompt}`;
-
-        console.log("🤖 Calling AI service with mocion prompt:", {
-          promptLength: mocionPrompt.length,
-          promptPreview: mocionPrompt.substring(0, 200) + "...",
-        });
-
-        const aiResponse = await aiService.callAI("", mocionPrompt);
+        console.log(
+          "🤖 Calling AI with mocion prompt (template from config or default)"
+        );
+        const aiResponse = await aiService.callAI(
+          mocionPromptTemplate,
+          mocionUserPrompt
+        );
 
         console.log("🤖 AI Response for mocion:", {
           responseLength: aiResponse?.length || 0,
-          responsePreview: aiResponse?.substring(0, 100) + "...",
+          responsePreview: aiResponse?.substring(0, 150) + "...",
         });
 
-        // Post AI response to the chat
+        const resolutionText =
+          (aiResponse && aiResponse.trim()) || "No se pudo procesar la moción.";
+
         const aiMocionMessage = {
           id: `mocion-ai-${Date.now()}`,
-          message: aiResponse || "No se pudo procesar la moción.",
+          message: resolutionText,
           username: "Moderador",
           timestamp: new Date().toISOString(),
           socketId: "ai-moderator",
@@ -1369,13 +1429,101 @@ ${debateConfig.mocionPrompt}`;
         messages.push(aiMocionMessage);
         messageStore.set(data.roomId, messages);
 
-        // Broadcast AI response to room
-        console.log("📡 Broadcasting AI mocion response to room:", {
-          roomId: data.roomId,
-          messageId: aiMocionMessage.id,
-        });
         io.to(data.roomId).emit("receive-message", aiMocionMessage);
         console.log("✅ AI mocion response broadcasted successfully");
+
+        // Evaluate resolution: use promptPuntosPositivos to score the resolution; high score + ACEPTADA → revert negative points
+        const puntosPrompt =
+          debateConfig?.promptPuntosPositivos ||
+          DEFAULT_PROMPTS.promptPuntosPositivos ||
+          "";
+        let shouldRevertNegative = false;
+        const upperResolution = (resolutionText || "").toUpperCase();
+        const resolutionAccepts =
+          upperResolution.includes("ACEPTADA") &&
+          !upperResolution.includes("RECHAZADA");
+
+        if (puntosPrompt.trim() && aiResponse?.trim()) {
+          try {
+            const conversationHistory = messageStore.get(data.roomId) || [];
+            const debateTopicContext = debateConfig?.description?.trim()
+              ? `Tema del debate: ${debateConfig.description.trim()}`
+              : "";
+            let initialArgumentsContext = "";
+            if (roomData.participants?.length) {
+              const lines = roomData.participants
+                .filter(
+                  (p) => p.initialArgument && String(p.initialArgument).trim()
+                )
+                .map((p) => `${p.username}: ${p.initialArgument.trim()}`);
+              if (lines.length) {
+                initialArgumentsContext = `Posturas: ${lines.join("\n")}`;
+              }
+            }
+            const puntosResult = await aiService.moderateMessageWithPrompt(
+              resolutionText.substring(0, 2000),
+              data.username,
+              conversationHistory.slice(-8),
+              puntosPrompt.trim(),
+              initialArgumentsContext,
+              debateTopicContext
+            );
+            const resolutionScore =
+              puntosResult?.response != null
+                ? await aiService.extractPointsNumber(puntosResult.response)
+                : 0;
+            // Revert if resolution says ACEPTADA and the resolution scores well (merit to accept appeal)
+            shouldRevertNegative = resolutionAccepts && resolutionScore >= 1.5;
+            console.log(
+              "🤖 Mocion promptPuntosPositivos score:",
+              resolutionScore,
+              "resolutionAccepts:",
+              resolutionAccepts,
+              "→ shouldRevertNegative:",
+              shouldRevertNegative
+            );
+          } catch (err) {
+            console.error(
+              "Mocion promptPuntosPositivos evaluation error:",
+              err
+            );
+            shouldRevertNegative = resolutionAccepts;
+          }
+        } else {
+          shouldRevertNegative = resolutionAccepts;
+          console.log(
+            "🤖 Mocion fallback (no puntos prompt) → shouldRevertNegative:",
+            shouldRevertNegative
+          );
+        }
+
+        if (shouldRevertNegative) {
+          const negativeScore = await aiService.extractNegativeScore(
+            data.moderatorMessage
+          );
+          if (negativeScore < 0) {
+            roomData.participantScores = roomData.participantScores || {};
+            const prev = roomData.participantScores[data.username] ?? 0;
+            roomData.participantScores[data.username] =
+              prev + Math.abs(negativeScore);
+            roomParticipants.set(data.roomId, roomData);
+            console.log(
+              `🔄 Reverted sanction: ${data.username} +${Math.abs(
+                negativeScore
+              )} (total: ${roomData.participantScores[data.username]})`
+            );
+            io.to(data.roomId).emit("room-updated", {
+              participants: roomData.participants,
+              currentTurn: roomData.currentTurn,
+              currentSpeaker: roomData.currentSpeaker,
+              conversationStarted: roomData.conversationStarted,
+              debateStartTime: roomData.debateStartTime,
+              debateEndTime: roomData.debateEndTime,
+              participantScores: roomData.participantScores,
+            });
+          }
+        }
+
         console.log("=== END MOCION SUBMISSION ===\n");
       } catch (error) {
         console.error("❌ Mocion submission error:", error);
@@ -1424,7 +1572,7 @@ ${debateConfig.mocionPrompt}`;
 
           roomParticipants.set(roomId, roomData);
 
-          // Notify remaining participants
+          // Notify remaining participants (or keep room data for rejoin on refresh)
           if (roomData.participants.length > 0) {
             console.log(
               `Room ${roomId} still has ${roomData.participants.length} participants`
@@ -1441,10 +1589,10 @@ ${debateConfig.mocionPrompt}`;
             io.to(roomId).emit("room-updated", roomInfo);
             io.to(roomId).emit("user-left", { username: participant.username });
           } else {
-            console.log(`Room ${roomId} is now empty, cleaning up`);
-            // Clean up empty room
-            roomParticipants.delete(roomId);
-            roomConfigs.delete(roomId);
+            // Keep room and config so that on refresh the user can rejoin and recover participantScores, conversation state, etc.
+            console.log(
+              `Room ${roomId} is now empty; keeping room data for rejoin (refresh)`
+            );
           }
 
           console.log(
