@@ -302,6 +302,129 @@ export const useSocket = () => {
     [socket]
   );
 
+  // --- Voice call (WebRTC signaling) ---
+  const joinVoice = useCallback(
+    (roomId: string) => {
+      if (socket) socket.emit("voice-join", { roomId });
+    },
+    [socket]
+  );
+
+  const leaveVoice = useCallback(
+    (roomId: string) => {
+      if (socket) socket.emit("voice-leave", { roomId });
+    },
+    [socket]
+  );
+
+  const sendVoiceOffer = useCallback(
+    (targetSocketId: string, sdp: RTCSessionDescriptionInit) => {
+      if (socket) socket.emit("voice-offer", { targetSocketId, sdp });
+    },
+    [socket]
+  );
+
+  const sendVoiceAnswer = useCallback(
+    (targetSocketId: string, sdp: RTCSessionDescriptionInit) => {
+      if (socket) socket.emit("voice-answer", { targetSocketId, sdp });
+    },
+    [socket]
+  );
+
+  const sendVoiceIceCandidate = useCallback(
+    (targetSocketId: string, candidate: RTCIceCandidateInit) => {
+      if (socket) socket.emit("voice-ice", { targetSocketId, candidate });
+    },
+    [socket]
+  );
+
+  const onVoiceParticipantJoined = useCallback(
+    (
+      callback: (data: { socketId: string; username: string | null }) => void
+    ) => {
+      if (socket) {
+        socket.on("voice-participant-joined", callback);
+        return () => socket.off("voice-participant-joined", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
+  const onVoiceParticipantLeft = useCallback(
+    (callback: (data: { socketId: string }) => void) => {
+      if (socket) {
+        socket.on("voice-participant-left", callback);
+        return () => socket.off("voice-participant-left", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
+  const onVoiceParticipants = useCallback(
+    (
+      callback: (data: {
+        participants: Array<{ socketId: string; username: string | null }>;
+      }) => void
+    ) => {
+      if (socket) {
+        socket.on("voice-participants", callback);
+        return () => socket.off("voice-participants", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
+  const onVoiceOffer = useCallback(
+    (
+      callback: (data: {
+        fromSocketId: string;
+        sdp: RTCSessionDescriptionInit;
+      }) => void
+    ) => {
+      if (socket) {
+        socket.on("voice-offer", callback);
+        return () => socket.off("voice-offer", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
+  const onVoiceAnswer = useCallback(
+    (
+      callback: (data: {
+        fromSocketId: string;
+        sdp: RTCSessionDescriptionInit;
+      }) => void
+    ) => {
+      if (socket) {
+        socket.on("voice-answer", callback);
+        return () => socket.off("voice-answer", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
+  const onVoiceIce = useCallback(
+    (
+      callback: (data: {
+        fromSocketId: string;
+        candidate: RTCIceCandidateInit;
+      }) => void
+    ) => {
+      if (socket) {
+        socket.on("voice-ice", callback);
+        return () => socket.off("voice-ice", callback);
+      }
+      return () => {};
+    },
+    [socket]
+  );
+
   return {
     socket,
     connected,
@@ -320,5 +443,16 @@ export const useSocket = () => {
     onWaitingForCreator,
     onTurnTimeUpdate,
     onMessageError,
+    joinVoice,
+    leaveVoice,
+    sendVoiceOffer,
+    sendVoiceAnswer,
+    sendVoiceIceCandidate,
+    onVoiceParticipantJoined,
+    onVoiceParticipantLeft,
+    onVoiceParticipants,
+    onVoiceOffer,
+    onVoiceAnswer,
+    onVoiceIce,
   };
 };

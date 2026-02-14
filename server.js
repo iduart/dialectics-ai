@@ -20,6 +20,9 @@ const roomParticipants = new Map(); // roomId -> { participants: [], currentTurn
 const roomConfigs = new Map(); // roomId -> { description, toleranceLevel, duration }
 const turnTimers = new Map(); // roomId -> { timer: Timeout, countdownInterval: Interval, timeLeft: number }
 
+// Voice call: which sockets are in a voice call per room (for 2-person WebRTC mesh signaling)
+const roomVoiceParticipants = new Map(); // roomId -> Set<socketId>
+
 // Initialize OpenAI client (primary AI)
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
@@ -916,6 +919,75 @@ app.prepare().then(() => {
       console.log("=== END JOIN ROOM EVENT ===\n");
     });
 
+    // --- Voice call (WebRTC mesh for 2 people): signaling only ---
+    socket.on("voice-join", (data) => {
+      const { roomId } = data;
+      if (!roomId || !socket.rooms.has(roomId)) return;
+      let set = roomVoiceParticipants.get(roomId);
+      if (!set) {
+        set = new Set();
+        roomVoiceParticipants.set(roomId, set);
+      }
+      set.add(socket.id);
+      const roomData = roomParticipants.get(roomId);
+      const username =
+        roomData?.participants?.find((p) => p.socketId === socket.id)
+          ?.username || null;
+      socket.to(roomId).emit("voice-participant-joined", {
+        socketId: socket.id,
+        username,
+      });
+      const othersInVoice = Array.from(set)
+        .filter((id) => id !== socket.id)
+        .map((id) => {
+          const u =
+            roomData?.participants?.find((p) => p.socketId === id)?.username ||
+            null;
+          return { socketId: id, username: u };
+        });
+      socket.emit("voice-participants", { participants: othersInVoice });
+    });
+
+    socket.on("voice-leave", (data) => {
+      const { roomId } = data;
+      const set = roomVoiceParticipants.get(roomId);
+      if (set) {
+        set.delete(socket.id);
+        if (set.size === 0) roomVoiceParticipants.delete(roomId);
+      }
+      socket.to(roomId).emit("voice-participant-left", { socketId: socket.id });
+    });
+
+    socket.on("voice-offer", (data) => {
+      const { targetSocketId, sdp } = data;
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("voice-offer", {
+          fromSocketId: socket.id,
+          sdp,
+        });
+      }
+    });
+
+    socket.on("voice-answer", (data) => {
+      const { targetSocketId, sdp } = data;
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("voice-answer", {
+          fromSocketId: socket.id,
+          sdp,
+        });
+      }
+    });
+
+    socket.on("voice-ice", (data) => {
+      const { targetSocketId, candidate } = data;
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("voice-ice", {
+          fromSocketId: socket.id,
+          candidate,
+        });
+      }
+    });
+
     // Send message to room
     socket.on("send-message", async (data) => {
       console.log("\n=== MESSAGE RECEIVED ===");
@@ -1543,6 +1615,15 @@ app.prepare().then(() => {
         socketId: socket.id,
         timestamp: new Date().toISOString(),
       });
+
+      // Leave voice in any room
+      for (const [roomId, set] of roomVoiceParticipants.entries()) {
+        if (set.has(socket.id)) {
+          set.delete(socket.id);
+          if (set.size === 0) roomVoiceParticipants.delete(roomId);
+          io.to(roomId).emit("voice-participant-left", { socketId: socket.id });
+        }
+      }
 
       // Check which rooms this socket was in
       const socketRooms = Array.from(socket.rooms);

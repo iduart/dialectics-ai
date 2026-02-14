@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSocket, Message as MessageType, RoomInfo } from "@/hooks/useSocket";
+import { useVoiceCall } from "@/hooks/useVoiceCall";
+import { useSpeechToMessage } from "@/hooks/useSpeechToMessage";
 import Message from "./Message";
+import VoiceLevelIndicator from "./VoiceLevelIndicator";
 import { DebateConfig } from "@/types";
 
 interface ChatProps {
@@ -50,6 +53,7 @@ export default function Chat({
   const prevScoreRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sidePanelEndRef = useRef<HTMLDivElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   // Debate total duration: remaining seconds (Infinity = sin límite)
   const debateRemainingSeconds =
@@ -102,7 +106,71 @@ export default function Chat({
     onWaitingForCreator,
     onTurnTimeUpdate,
     onMessageError,
+    joinVoice,
+    leaveVoice,
+    sendVoiceOffer,
+    sendVoiceAnswer,
+    sendVoiceIceCandidate,
+    onVoiceParticipantJoined,
+    onVoiceParticipantLeft,
+    onVoiceParticipants,
+    onVoiceOffer,
+    onVoiceAnswer,
+    onVoiceIce,
   } = useSocket();
+
+  const voiceCall = useVoiceCall({
+    roomId,
+    socketId: socketId || null,
+    joinVoice,
+    leaveVoice,
+    sendVoiceOffer,
+    sendVoiceAnswer,
+    sendVoiceIceCandidate,
+    onVoiceParticipantJoined,
+    onVoiceParticipantLeft,
+    onVoiceParticipants,
+    onVoiceOffer,
+    onVoiceAnswer,
+    onVoiceIce,
+  });
+
+  const isInVoiceCall =
+    voiceCall.state === "connected" ||
+    voiceCall.state === "waiting" ||
+    voiceCall.state === "joining";
+  const isMyTurn =
+    !!roomInfo?.conversationStarted && roomInfo?.currentSpeaker === username;
+  const isMyTurnRef = useRef(isMyTurn);
+  isMyTurnRef.current = isMyTurn;
+
+  const handleFinalTranscript = useCallback(
+    (text: string) => {
+      if (isMyTurnRef.current && text.trim()) {
+        sendMessage(roomId, text.trim(), username);
+      }
+    },
+    [roomId, username, sendMessage]
+  );
+
+  const {
+    isSupported: isSpeechSupported,
+    isListening,
+    interimTranscript,
+  } = useSpeechToMessage({
+    // Only run recognition when it's our turn - avoids conflicts when 2 tabs share same mic on same PC
+    enabled: isInVoiceCall && !!roomInfo?.conversationStarted && isMyTurn,
+    roomId,
+    username,
+    onFinalTranscript: handleFinalTranscript,
+  });
+
+  // Auto-mute when it's not my turn; unmute when it's my turn (so other participant only hears me when I'm speaking)
+  const setVoiceMuted = voiceCall.setMuted;
+  useEffect(() => {
+    if (!isInVoiceCall) return;
+    setVoiceMuted(!isMyTurn);
+  }, [isInVoiceCall, isMyTurn, setVoiceMuted]);
 
   useEffect(() => {
     console.log("🔌 Socket effect triggered:", {
@@ -268,6 +336,18 @@ export default function Chat({
     scrollToBottom();
   }, [messages]);
 
+  // Reproduce el audio remoto (voz de la otra persona) en tiempo real como en una llamada
+  useEffect(() => {
+    const el = remoteAudioRef.current;
+    if (!el) return;
+    if (voiceCall.remoteStream) {
+      el.srcObject = voiceCall.remoteStream;
+      el.play().catch(() => {});
+    } else {
+      el.srcObject = null;
+    }
+  }, [voiceCall.remoteStream]);
+
   useEffect(() => {
     if (sidePanelOpen) {
       sidePanelEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -351,10 +431,6 @@ export default function Chat({
       setErrorMessage(""); // Clear any previous error messages
     }
   };
-
-  // Check if it's the current user's turn
-  const isMyTurn =
-    roomInfo?.conversationStarted && roomInfo?.currentSpeaker === username;
 
   const handleMocionClick = (message: MessageType) => {
     setSelectedMocionMessage(message);
@@ -747,6 +823,128 @@ export default function Chat({
             </div>
           )}
           <div ref={messagesEndRef} />
+        </div>
+
+        {/* Audio remoto: voz de la otra persona en tiempo real (oculto, solo reproducción) */}
+        <audio
+          ref={remoteAudioRef}
+          autoPlay
+          playsInline
+          className="hidden"
+          aria-label="Remote participant voice"
+        />
+
+        {/* Voice call bar: alternative to text (phone-call style) */}
+        <div className="bg-white dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700 px-6 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {voiceCall.state === "idle" || voiceCall.state === "error" ? (
+              <button
+                type="button"
+                onClick={voiceCall.joinVoiceCall}
+                disabled={!connected}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 dark:disabled:bg-slate-600 text-white text-sm font-medium transition-colors disabled:cursor-not-allowed"
+                title="Join voice call (like a phone call). Your speech will be sent as text when you stop talking and moderated by the AI."
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.83V20c0 .55.45 1 1 1s1-.45 1-1v-2.18c3-.48 5.42-2.83 5.91-5.82.09-.6-.39-1.14-1-1.14z" />
+                </svg>
+                Join voice
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={voiceCall.leaveVoiceCall}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors"
+                  title="Leave voice call"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.79-.18.16-.43.25-.7.25-.5 0-.9-.4-.9-.9V8.05c0-.5.4-.9.9-.9.2 0 .39.06.55.2.79.66 1.67 1.29 2.65 1.78.34.17.57.52.57.91v3.1C8.85 9.25 10.4 9 12 9zm0-6c-1.66 0-3 1.34-3 3v4.27c0 .5.4.9.9.9s.9-.4.9-.9V6c0-.83.67-1.5 1.5-1.5S15 5.17 15 6v4.27c0 .5.4.9.9.9s.9-.4.9-.9V6c0-1.66-1.34-3-3-3z" />
+                  </svg>
+                  Leave voice
+                </button>
+                <VoiceLevelIndicator
+                  stream={voiceCall.localStream}
+                  muted={voiceCall.isMuted}
+                  className="shrink-0"
+                />
+                <button
+                  type="button"
+                  onClick={() => voiceCall.setMuted(!voiceCall.isMuted)}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    voiceCall.isMuted
+                      ? "bg-amber-600 hover:bg-amber-700 text-white"
+                      : "bg-gray-200 dark:bg-slate-600 hover:bg-gray-300 dark:hover:bg-slate-500 text-gray-800 dark:text-slate-200"
+                  }`}
+                  title={voiceCall.isMuted ? "Unmute" : "Mute"}
+                >
+                  {voiceCall.isMuted ? (
+                    <>
+                      <svg
+                        className="w-5 h-5"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" />
+                      </svg>
+                      Unmute
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="w-5 h-5"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.83V20c0 .55.45 1 1 1s1-.45 1-1v-2.18c3-.48 5.42-2.83 5.91-5.82.09-.6-.39-1.14-1-1.14z" />
+                      </svg>
+                      Mute
+                    </>
+                  )}
+                </button>
+                <span className="text-sm text-gray-600 dark:text-slate-400">
+                  {voiceCall.state === "joining" && "Connecting…"}
+                  {voiceCall.state === "waiting" &&
+                    "Waiting for other participant…"}
+                  {voiceCall.state === "connected" && (
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      Voice connected
+                    </span>
+                  )}
+                </span>
+                {isSpeechSupported && roomInfo?.conversationStarted && (
+                  <span className="text-xs text-gray-500 dark:text-slate-500">
+                    Pause to send (when it’s your turn). Sent as text, moderated
+                    by AI.
+                  </span>
+                )}
+                {isListening && (
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                    Listening…
+                  </span>
+                )}
+                {interimTranscript.trim() && (
+                  <span
+                    className="text-sm text-gray-600 dark:text-slate-400 italic max-w-[200px] truncate"
+                    title={interimTranscript}
+                  >
+                    “…{interimTranscript}”
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+          {voiceCall.error && (
+            <p className="text-sm text-red-500 mt-2">{voiceCall.error}</p>
+          )}
         </div>
 
         {/* Message Input */}
